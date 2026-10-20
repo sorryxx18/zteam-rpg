@@ -11,13 +11,13 @@ test('最近道路用整條折線距離，未命名近路不誤報遠方大路',
   assert.equal(core.nearestRoad(0,0,[]).name,'巷弄／未命名道路');
 });
 
-test('步進限制dt並逐小步阻擋穿牆，未知地格不通行',()=>{
+test('步進逐小步阻擋穿牆，未知地格不通行，大卡頓捨棄',()=>{
   assert.equal(typeof core.stepMove,'function');
-  let v=core.stepMove({x:0,y:0},1,0,10,100,(x)=>x<3);
+  let v=core.stepMove({x:0,y:0},1,0,.25,100,(x)=>x<3);
   assert.ok(v.x<3);
   assert.ok(v.x>0);
-  assert.deepEqual(core.stepMove({x:0,y:0},1,0,1,100,()=>false),{x:0,y:0});
-  assert.equal(core.stepMove({x:0,y:0},1,0,10,100,()=>true).x,5);
+  assert.deepEqual(core.stepMove({x:0,y:0},1,0,.1,100,()=>false),{x:0,y:0});
+  assert.equal(core.stepMove({x:0,y:0},1,0,10,100,()=>true).x,0);
 });
 
 test('移動向量正規化，斜走不加速且零輸入不移動', () => {

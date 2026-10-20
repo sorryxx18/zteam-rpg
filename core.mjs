@@ -13,8 +13,11 @@ export function nearestRoad(x,y,roads) {
 }
 
 export function stepMove(position,x,y,dt,speed,canWalk) {
-  const vector=normalizeMove(x,y), distance=Math.min(Math.max(dt,0),0.05)*speed;
-  const count=Math.max(1,Math.ceil(distance));
+  // Normal frames integrate completely. Stalls/background gaps >250ms are discarded,
+  // never caught up; each collision sample advances at most 15cm.
+  if(!Number.isFinite(dt)||dt<0||dt>0.25)return {...position};
+  const vector=normalizeMove(x,y), distance=dt*speed;
+  const count=Math.max(1,Math.ceil(distance/0.15));
   let p={...position};
   for(let i=0;i<count;i++) {
     const dx=vector.x*distance/count,dy=vector.y*distance/count;
@@ -40,7 +43,17 @@ export function pointInPoly(x,y,p) {
   return inside;
 }
 
+export function circleIntersectsPoly(x,y,radius,p) {
+  if(pointInPoly(x,y,p))return true;
+  for(let i=0,j=p.length-2;i<p.length;j=i,i+=2){
+    const dx=p[i]-p[j],dy=p[i+1]-p[j+1];
+    const t=Math.max(0,Math.min(1,((x-p[j])*dx+(y-p[j+1])*dy)/(dx*dx+dy*dy||1)));
+    if(Math.hypot(x-p[j]-t*dx,y-p[j+1]-t*dy)<=radius+1e-10)return true;
+  }
+  return false;
+}
+
 export function normalizeMove(x,y) {
-  const length=Math.hypot(x,y);
-  return length ? {x:x/length,y:y/length} : {x:0,y:0};
+  const length=Math.max(1,Math.hypot(x,y));
+  return {x:x/length,y:y/length};
 }

@@ -1,7 +1,28 @@
-import {atlasFrame,pointInPoly,stepMove} from './core.mjs';
+import {atlasFrame,pointInPoly,stepMove,nearestRoad} from './core.mjs?v=2';
+import {TRACKS,createMusicPlayer} from './music.mjs?v=2';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), pointers=new Map(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
-let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=false,character='rhino',station='',zoom=1.5, width=640,height=360, previous=0, walkingTime=0, arrival=0, nearbyKey='', messageTimer;
+let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=false,character='rhino',station='',zoom=3.2, width=640,height=360, previous=0, walkingTime=0, arrival=0, nearbyKey='', messageTimer;
+// Intentionally game-sized for legibility, not a real human-height claim.
+const walkSpeed=2.2,runSpeed=4,spriteWorldHeight=4.5;
+const music=createMusicPlayer();
+let musicError=false;
+function updateMusicUI(){
+  const s=music.getState();
+  $('music-toggle').textContent=musicError||!s.playing?'音樂重試':s.muted?'開啟音樂':'靜音';
+  $('music-toggle').setAttribute('aria-pressed',String(s.muted));
+  $('music-status').textContent=musicError?'音樂尚未開啟，點音樂重試':s.muted?'音樂已靜音':s.playing?'音樂播放中':'音樂尚未開啟';
+}
+function playMusic(){
+  musicError=false;
+  try{Promise.resolve(music.play($('music-track').value||'street')).then(updateMusicUI).catch(()=>{musicError=true;updateMusicUI();});}
+  catch(e){musicError=true;updateMusicUI();}
+}
+for(const track of TRACKS){const option=document.createElement('option');option.value=track.id;option.textContent=track.name;$('music-track').append(option);}
+$('music-track').value='street';
+$('music-track').addEventListener('change',()=>{playMusic();if(ready)canvas.focus({preventScroll:true});});
+$('music-toggle').addEventListener('click',()=>{const s=music.getState();if(!s.playing||musicError){music.setMuted(false);playMusic();}else music.setMuted(!s.muted);updateMusicUI();if(ready)canvas.focus({preventScroll:true});});
+let phase='select',bootstrapped=false;
 const cellKey=(px,py)=>`${Math.floor(px/base.cs)}_${Math.floor(py/base.cs)}`;
 function message(text,timeout=0){clearTimeout(messageTimer);$('message').textContent=text;if(timeout)messageTimer=setTimeout(()=>$('message').textContent='',timeout);}
 async function loadCell(key){
@@ -21,10 +42,10 @@ async function loadNearby(px,py){return Promise.all(neighbors(px,py).map(loadCel
 function clearInput(){keys.clear();pointers.clear();moving=false;document.querySelectorAll('.pressed').forEach(b=>b.classList.remove('pressed'));}
 async function goStation(name){
   const target=base.stations.find(s=>s.name===name);if(!target)return;
-  const token=++arrival;ready=false;clearInput();station=name;$('station').value=name;$('location').textContent=name;$('road').textContent=target.road||target.sq;message('沿著街角，準備出發…');
+  const token=++arrival;ready=false;phase='loading';clearInput();station=name;message('沿著街角，準備出發…');
   await loadNearby(target.x,target.y);if(token!==arrival)return;
-  if(!cache.has(cellKey(target.x,target.y))){message('出發點讀取失敗，請重新整理再試。');return;}
-  x=target.x;y=target.y;direction='down';nearbyKey=cellKey(x,y);ready=true;message('出發！跟著自己的步調逛逛街區。',2600);canvas.focus({preventScroll:true});
+  if(!cache.has(cellKey(target.x,target.y))){phase='select';$('start-status').textContent='出發點讀取失敗，請重新整理再試。';return;}
+  x=target.x;y=target.y;direction='down';nearbyKey=cellKey(x,y);phase='playing';ready=true;clearInput();$('start-screen').close();updateLocation();message('出發！跟著自己的步調逛逛街區。',2600);canvas.focus({preventScroll:true});
 }
 function walkable(px,py){
   const key=cellKey(px,py);
@@ -55,39 +76,80 @@ function drawWorld(c,scale,w,h,isMini=false){
   if(!isMini){for(const s of base.stations){if(Math.abs(s.bx-x)>w/scale||Math.abs(s.by-y)>h/scale)continue;c.save();c.translate(s.bx,-s.by);c.fillStyle='#f2e4c3';c.fillRect(-12,-8,24,6);c.strokeStyle='#85614b';c.lineWidth=.5;c.strokeRect(-12,-8,24,6);c.fillStyle='#8b4438';c.font='3.3px sans-serif';c.textAlign='center';c.fillText(s.name,0,-3.5);c.restore();}}
   c.restore();
 }
+let overviewPromise, overviewData, roadName='巷弄／未命名道路';
+function updateLocation(){
+  roadName=nearestRoad(x,y,[...cache.values()].flatMap(d=>d.roads||[])).name;
+  $('road').textContent=roadName;
+  const s=base.stations.find(s=>s.name===station);if(!s)return;
+  const dx=x-s.x,dy=y-s.y,d=Math.hypot(dx,dy);
+  const bearing=d<1?'出發點':(['北','東北','東','東南','南','西南','西','西北'][Math.round(Math.atan2(dx,dy)/(Math.PI/4)+8)%8]+'側');
+  $('location').textContent=`${station} · ${Math.round(d)} m · ${bearing}`;
+}
+function playerArrow(c,px,py,label=true){
+  c.save();c.translate(px,py);c.strokeStyle='#263e39';c.lineWidth=3;c.fillStyle='#ffe28a';
+  c.beginPath();c.moveTo(0,-8);c.lineTo(6,7);c.lineTo(0,4);c.lineTo(-6,7);c.closePath();c.stroke();c.fill();
+  if(label){c.font='bold 10px sans-serif';c.textAlign='center';c.lineWidth=3;c.strokeText('你在這裡',0,20);c.fillText('你在這裡',0,20);}c.restore();
+}
+function drawOverview(){
+  if(!overviewData)return;
+  const map=$('overview-map'),w=Math.max(280,Math.round(map.getBoundingClientRect().width)),h=w<600?360:460;
+  map.width=w;map.height=h;
+  const c=map.getContext('2d');
+  const roads=overviewData.roads||[],stations=overviewData.stations||base.stations;
+  const points=roads.flatMap(r=>r.p).concat(stations.flatMap(s=>[s.x,s.y]),[x,y]);
+  const [l,b,r,t]=bounds(points),scale=Math.min((w-100)/(r-l||1),(h-70)/(t-b||1));
+  const px=v=>50+(v-l)*scale,py=v=>h-35-(v-b)*scale;
+  c.fillStyle='#c9c3a1';c.fillRect(0,0,w,h);c.strokeStyle='#7d8878';c.lineWidth=1;
+  for(const road of roads){c.beginPath();for(let i=0;i<road.p.length;i+=2)i?c.lineTo(px(road.p[i]),py(road.p[i+1])):c.moveTo(px(road.p[i]),py(road.p[i+1]));c.stroke();}
+  c.font='12px sans-serif';c.textAlign='center';
+  for(const s of stations){const a=px(s.x),b=py(s.y);c.fillStyle='#a44e38';c.fillRect(a-3,b-3,6,6);c.fillStyle='#263e39';c.fillText(s.name,a,b-8);}
+  playerArrow(c,px(x),py(y));
+}
+$('overview-open').addEventListener('click',async()=>{
+  clearInput();$('overview-dialog').showModal();
+  try{overviewPromise??=fetch('./data/overview.json').then(r=>{if(!r.ok)throw Error('概覽讀取失敗');return r.json();});overviewData=await overviewPromise;$('overview-status').textContent='全轄區真實道路 · 紅點為9個出發分隊 · 北 ↑';drawOverview();}
+  catch(e){$('overview-status').textContent='轄區地圖暫時無法讀取，關閉後可重試。';overviewPromise=null;}
+});
+$('overview-close').addEventListener('click',()=>$('overview-dialog').close());
+$('overview-dialog').addEventListener('close',()=>{clearInput();canvas.focus({preventScroll:true});});
 function renderScene(){
   if(!base){ctx.fillStyle='#9ca77b';ctx.fillRect(0,0,width,height);return;}
   drawWorld(ctx,zoom,width,height);
-  if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(width/2,height/2+1,7,2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=0.48;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(width/2-32*size),Math.round(height/2-f.footY*size),64*size,80*size);}}
-  drawWorld(mini,.16,128,100,true);mini.fillStyle='#334d40';mini.fillRect(60,46,9,9);mini.fillStyle='#ffe4a0';mini.fillRect(62,48,5,5);
+  if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(width/2,height/2+zoom*.15,zoom*1.2,zoom*.35,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteWorldHeight*zoom/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(width/2-32*size),Math.round(height/2-f.footY*size),64*size,80*size);}}
+  drawWorld(mini,.16,128,100,true);playerArrow(mini,64,50);
+  if(ready)updateLocation();
+  updateMusicUI();
 }
 function update(dt){
-  if(!ready){moving=false;return;}
+  if(!ready||$('overview-dialog').open){moving=false;return;}
   const pressed=k=>keys.has(k)||[...pointers.values()].includes(k);
   const dx=Number(pressed('ArrowRight')||pressed('d'))-Number(pressed('ArrowLeft')||pressed('a'));
   const dy=Number(pressed('ArrowUp')||pressed('w'))-Number(pressed('ArrowDown')||pressed('s'));
-  if(dx||dy){direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'up':'down');const next=stepMove({x,y},dx,dy,dt,pressed('Shift')||pressed(' ')?30:18,walkable);moving=next.x!==x||next.y!==y;x=next.x;y=next.y;if(moving)walkingTime+=Math.min(dt,.05);const k=cellKey(x,y);if(k!==nearbyKey){nearbyKey=k;loadNearby(x,y);}}else moving=false;
+  if(dx||dy){direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'up':'down');const next=stepMove({x,y},dx,dy,dt,pressed('Shift')||pressed(' ')?runSpeed:walkSpeed,walkable);const distance=Math.hypot(next.x-x,next.y-y);moving=distance>0;x=next.x;y=next.y;if(moving)walkingTime+=distance*.16/.55;const k=cellKey(x,y);if(k!==nearbyKey){nearbyKey=k;loadNearby(x,y);}}else moving=false;
 }
 function loop(now){const dt=previous?(now-previous)/1000:0;previous=now;update(dt);renderScene();requestAnimationFrame(loop);}
 const movementKeys=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','Shift',' ']);
-window.addEventListener('keydown',e=>{if(e.target.closest('select,input,summary,button'))return;const key=e.key.length===1?e.key.toLowerCase():e.key;if(movementKeys.has(key)){e.preventDefault();keys.add(key);}});
+window.addEventListener('keydown',e=>{if(!ready||$('overview-dialog').open||e.target.closest('select,input,summary,button'))return;const key=e.key.length===1?e.key.toLowerCase():e.key;if(movementKeys.has(key)){e.preventDefault();keys.add(key);}});
 window.addEventListener('keyup',e=>keys.delete(e.key.length===1?e.key.toLowerCase():e.key));
 window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',()=>{clearInput();previous=0;});
 for(const b of document.querySelectorAll('[data-key],#run')){
-  b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);pointers.set(e.pointerId,b.dataset.key||'Shift');b.classList.add('pressed');});
+  b.addEventListener('pointerdown',e=>{if(!ready||$('overview-dialog').open)return;e.preventDefault();b.setPointerCapture(e.pointerId);pointers.set(e.pointerId,b.dataset.key||'Shift');b.classList.add('pressed');});
   const end=e=>{pointers.delete(e.pointerId);b.classList.remove('pressed');};b.addEventListener('pointerup',end);b.addEventListener('pointercancel',end);b.addEventListener('lostpointercapture',end);b.addEventListener('contextmenu',e=>e.preventDefault());
 }
-$('station').addEventListener('change',e=>goStation(e.target.value));$('home').addEventListener('click',()=>goStation(station));
-$('zoom-in').addEventListener('click',()=>{zoom=Math.min(2.3,zoom+.2);canvas.focus({preventScroll:true});});$('zoom-out').addEventListener('click',()=>{zoom=Math.max(1,zoom-.2);canvas.focus({preventScroll:true});});
-for(const b of document.querySelectorAll('[data-character]'))b.addEventListener('click',()=>{character=b.dataset.character;document.querySelectorAll('[data-character]').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));canvas.focus({preventScroll:true});});
-$('settings').addEventListener('toggle',clearInput);
-Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom}),renderScene})});
+$('home').addEventListener('click',()=>{if(ready)goStation(station);});
+$('zoom-in').addEventListener('click',()=>{zoom=Math.min(4,zoom+.2);canvas.focus({preventScroll:true});});$('zoom-out').addEventListener('click',()=>{zoom=Math.max(1.6,zoom-.2);canvas.focus({preventScroll:true});});
+for(const b of document.querySelectorAll('[data-start-character]'))b.addEventListener('click',()=>{character=b.dataset.startCharacter;document.querySelectorAll('[data-start-character]').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));});
+$('settings').addEventListener('click',()=>{++arrival;ready=false;phase='select';clearInput();$('start-game').disabled=!bootstrapped;$('start-screen').showModal();$('start-game').focus();});
+$('start-screen').addEventListener('cancel',e=>e.preventDefault());
+$('start-game').addEventListener('click',async()=>{if(!bootstrapped||phase!=='select')return;playMusic();$('start-game').disabled=true;await goStation($('start-station').value);$('start-game').disabled=false;});
+Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteWorldHeight,music:music.getState(),x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom}),renderScene})});
 async function boot(){
   try{
     const response=await fetch('./data/base.json');if(!response.ok)throw Error('地圖尚未準備完成');base=await response.json();available=new Set(base.cells);
-    for(const s of base.stations){const option=document.createElement('option');option.value=s.name;option.textContent=s.name;$('station').append(option);}
+    for(const s of base.stations){const option=document.createElement('option');option.value=s.name;option.textContent=s.name;$('start-station').append(option);}
     await Promise.all(['male','female','rhino'].map(name=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>{images[name]=image;const c=document.querySelector(`[data-character="${name}"] canvas`),p=c.getContext('2d');p.imageSmoothingEnabled=false;const f=atlasFrame('down',false,0);p.drawImage(image,f.sx,f.sy,64,80,0,0,64,80);resolve();};image.onerror=()=>reject(Error('角色圖像尚未準備完成'));image.src=`./assets/${name}.png`;})));
-    await goStation(base.stations.find(s=>s.name.includes('莊敬'))?.name||base.stations[0].name);
-  }catch(e){console.error(e);message(`${e.message}。請稍後重新整理。`);}
+    $('start-station').value=base.stations.find(s=>s.name.includes('莊敬'))?.name||base.stations[0].name;
+    bootstrapped=true;$('start-game').disabled=false;$('start-status').textContent='方向鍵／WASD走動，Shift奔跑；手機用右下方向鍵。';
+  }catch(e){console.error(e);$('start-status').textContent=`${e.message}。請稍後重新整理。`;}
 }
-resize();requestAnimationFrame(loop);boot();
+resize();$('start-screen').showModal();requestAnimationFrame(loop);boot();

@@ -1,3 +1,17 @@
+export function nearestRoad(x,y,roads) {
+  let best=null,distance=Infinity;
+  for(const road of roads) {
+    const p=road.p||[];
+    for(let i=2;i<p.length;i+=2) {
+      const ax=p[i-2],ay=p[i-1],dx=p[i]-ax,dy=p[i+1]-ay;
+      const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy||1)));
+      const d=Math.hypot(x-ax-t*dx,y-ay-t*dy);
+      if(d<distance){distance=d;best=road;}
+    }
+  }
+  return {name:best&&distance<=Math.max(15,(best.w||0)/2+8)&&best.n?best.n:'巷弄／未命名道路',distance};
+}
+
 export function stepMove(position,x,y,dt,speed,canWalk) {
   const vector=normalizeMove(x,y), distance=Math.min(Math.max(dt,0),0.05)*speed;
   const count=Math.max(1,Math.ceil(distance));

@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as core from '../core.mjs';
 
+test('最近道路用整條折線距離，未命名近路不誤報遠方大路',()=>{
+  assert.equal(typeof core.nearestRoad,'function');
+  const roads=[{p:[0,0,1000,0],w:8,n:'長路'},{p:[400,50,600,50],w:8,n:'遠路'}];
+  assert.equal(core.nearestRoad(500,1,roads).name,'長路');
+  assert.equal(core.nearestRoad(500,49,[...roads,{p:[490,49,510,49],w:2}]).name,'巷弄／未命名道路');
+  assert.equal(core.nearestRoad(500,500,roads).name,'巷弄／未命名道路');
+  assert.equal(core.nearestRoad(0,0,[]).name,'巷弄／未命名道路');
+});
+
 test('步進限制dt並逐小步阻擋穿牆，未知地格不通行',()=>{
   assert.equal(typeof core.stepMove,'function');
   let v=core.stepMove({x:0,y:0},1,0,10,100,(x)=>x<3);

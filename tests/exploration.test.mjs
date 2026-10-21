@@ -21,12 +21,14 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const base=JSON.parse(await readFile(new URL('data/base.json',root),'utf8'));
   elements.get('game').getBoundingClientRect=()=>({width:viewport[0],height:viewport[1]});
   const window={location,addEventListener:(k,f)=>events[k]=f,matchMedia:()=>({matches:viewport[0]<=900||viewport[1]<=450})};
-  const box={...core,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},localTestRate,URLSearchParams,window,document,console,setTimeout:()=>1,clearTimeout(){},ResizeObserver:class{observe(){}},Image:class{set src(v){queueMicrotask(()=>this.onload());}},requestAnimationFrame:f=>frames.push(f),fetch:async url=>{calls.push(url);if(url.endsWith('base.json'))return {ok:true,json:async()=>base};if(url.endsWith('overview.json'))return {ok:true,json:async()=>({roads:[{p:[-5000,0,11000,0],w:8,n:'概覽路'}],stations:base.stations})};return {ok:true,json:async()=>({builds:wall?[{p:(()=>{const s=base.stations.find(s=>s.name.includes('莊敬'));return [s.x+.5,s.y-5,s.x+.51,s.y-5,s.x+.51,s.y+5,s.x+.5,s.y+5];})()}]:[],roads:[{p:[-5000,-677,11000,-677],w:8,n:'測試路'}]})};}};
+  const box={...core,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},localTestRate,URLSearchParams,window,document,console,setTimeout:()=>1,clearTimeout(){},ResizeObserver:class{observe(){}},Image:class{set src(v){this.url=v;queueMicrotask(()=>this.onload());}},requestAnimationFrame:f=>frames.push(f),fetch:async url=>{calls.push(url);if(url.endsWith('base.json'))return {ok:true,json:async()=>base};if(url.endsWith('overview.json'))return {ok:true,json:async()=>({roads:[{p:[-5000,0,11000,0],w:8,n:'概覽路'}],stations:base.stations})};return {ok:true,json:async()=>({builds:wall?[{p:(()=>{const s=base.stations.find(s=>s.name.includes('莊敬'));return [s.x+.5,s.y-5,s.x+.51,s.y-5,s.x+.51,s.y+5,s.x+.5,s.y+5];})()}]:[],roads:[{p:[-5000,-677,11000,-677],w:8,n:'測試路'}]})};}};
   let now=0,offset=0;
   box.setTimeout=fn=>timers.push(fn);
   box.requestAnimationFrame=f=>frames.push(t=>{now=t+offset;f(now);});
   box.performance={now:()=>now};
-  Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'));
+  Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'),await import('../incident.mjs'));
+ // Free-space speed/input fixtures exclude scenery; crowd slowdown has its own integration case.
+ if(movementOnly){const layout=box.createIncident;box.createIncident=o=>({...layout(o),people:[]});}
   // One-line synthetic road fixtures exercise legacy mechanics, not perimeter geography.
   // Real-data integration below uses the app's unmodified perimeter configuration.
   const realCreateRace=box.createRace;box.createRace=options=>{raceInputs.push(options);return realCreateRace(realData?options:{...options,config:{...options.config,npcSpawnMode:'nearest-station'}});};
@@ -56,6 +58,29 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('v3 人群1.5m內只令玩家走跑乘0.6並飄借過，不改基準5與10',async()=>{
+ const h=await harness({movementOnly:true}),layout=h.box.createIncident,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');h.box.createIncident=o=>({...layout(o),people:[{x:home.x,y:home.y}]});
+ await h.click('start-game');const get=()=>h.window.__game.getState();assert.ok(Math.hypot(get().x-home.x,get().y-home.y)<1.5);const start=get().x;h.frames.shift()(1000);h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.3)<1e-8);assert.equal(get().incident.crowdFactor,.6);assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]==='借過借過'));
+ h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});h.frames.shift()(1200);assert.ok(Math.abs(get().x-start-.9)<1e-8);assert.ok(Math.abs(get().movementSpeed-6)<1e-8);assert.equal(get().walkSpeed,5);assert.equal(get().runSpeed,10);
+});
+test('v3 原圖綠旗、灰旗與被NPC佔領水源旁停車，與NPC目標框分開',async()=>{
+ const h=await harness(),make=h.box.createRace,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊'),fetch=h.box.fetch;h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[[home.x+20,home.y,'hydrant_above'],[home.x+40,home.y,'hydrant_under']]}:fetch(url);h.box.createRace=o=>{const m=make(o);return {...m,getState:()=>{const s=m.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?'player':'npc1'}))};}};};await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();
+ assert.equal(h.drawCalls.filter(v=>v[0]==='drawImage'&&v[1].url?.includes('/art/rhino_flag.png')).length,2);assert.ok(h.drawCalls.some(v=>v[0]==='set'&&v[1]==='filter'&&v[2]==='grayscale(1)'));assert.equal(h.drawCalls.filter(v=>v[0]==='drawImage'&&v[1].url?.includes('/art/fire_engine.png')).length,3);
+});
+test('v3 指定原圖繪製火場、群眾與雙消防栓，場景不增加碰撞且手機限60物件',async()=>{
+ const h=await harness();await h.click('start-game');h.advance(100);const calls=h.drawCalls.filter(c=>c[0]==='drawImage').map(c=>c[1].url||'');
+ for(const name of ['fire_engine','ladder_truck','ambulance','police_car','bystanders','fire_big','water_icons'])assert.ok(calls.some(url=>url.includes('/art/'+name+'.png')),name);
+ const s=h.window.__game.getState();assert.ok(s.incident);assert.equal(s.incident.crowdCount,6);assert.ok(s.incident.renderedSprites<=59);assert.equal(s.incident.vehicles.length,5);
+});
+test('v3 對戰HUD即時合計NPC；高分仍可落敗；結算只記一次且勝負在最上方',async()=>{
+ const h=await harness();let finished=false;const create=h.box.createRace;h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>{const s=m.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?'player':'npc'+i})),score:50,captured:1,total:3,comboBonus:49,status:finished?'finished':'playing'};},tick(){},drainEvents:()=>[]};};
+ await h.click('start-game');h.advance(100);assert.equal(h.elements.get('captured').textContent,'你 1 ： 消防車 2');finished=true;h.advance(200);
+ assert.equal(h.elements.get('result-title').textContent,'被搶光了…');assert.equal(h.elements.get('result-versus').textContent,'你 1 顆 vs 消防車 2 顆（還有 0 顆沒人拿）');assert.equal(h.elements.get('result-score').textContent,'50 分');assert.match(h.elements.get('result-record').textContent,/普通難度戰績：勝 0 敗 1 平 0/);assert.equal(h.box.document.activeElement.id,'result-title');h.advance(300);h.advance(400);assert.equal(JSON.parse(h.storage.get('zteam-rpg-record-normal')).loss,1);
+});
+test('v3 分隊九個大按鈕與角色選取都有aria-pressed；被搶提示獨立置頂',async()=>{
+ const h=await harness();const group=h.elements.get('station-choices');assert.ok(group);assert.equal(group.options.length,9);const b=group.options[0];await b.listeners.click();assert.equal(h.elements.get('start-station').value,b.dataset.startStation);assert.equal(b['aria-pressed'],'true');await group.options.find(el=>el.dataset.startStation.includes('莊敬')).listeners.click();
+ let events=[];const create=h.box.createRace;h.box.createRace=options=>{const m=create(options);return {...m,drainEvents:()=>events.splice(0)};};await h.click('start-game');events.push({type:'stolen',waterName:'測試路口消防栓'});h.advance(100);assert.equal(h.elements.get('stolen-feedback').hidden,false);assert.match(h.elements.get('stolen-feedback').textContent,/測試路口消防栓被搶走了/);
+});
 test('v3 末30秒紅框與音樂加速，加分事件顯示連擊及截胡',async()=>{
  const h=await harness();const create=h.box.createRace;let events=[];h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>({...m.getState(),remaining:30}),tick(){},drainEvents:()=>events.splice(0)};};await h.click('start-game');events.push({type:'capture',waterId:0,waterName:'測試消防栓',combo:2,comboBonus:1,interceptBonus:1});h.advance(100);assert.ok(h.calls.includes('state:tense'));assert.match(h.elements.get('intercept-feedback').textContent,/截胡/);assert.equal(h.elements.get('intercept-feedback').hidden,false);assert.ok(h.drawCalls.some(c=>c[0]==='fillText'&&String(c[1]).includes('連擊×2')));assert.match(h.source,/classList\.add\('urgent'\)/);
 });
@@ -69,7 +94,7 @@ test('v3 結算以含加分總分為主、星等只算佔領率，清單每局�
  const h=await harness();let finished=false;const create=h.box.createRace;
  h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>({...m.getState(),score:17,captured:6,total:15,totalHoses:31,comboBonus:5,interceptBonus:6,status:finished?'finished':'playing'}),tick(){},drainEvents:()=>[]};};
  await h.click('start-game');finished=true;h.advance(100);
- assert.equal(h.window.__game.getState().phase,'result');assert.equal(h.elements.get('result-score').textContent,'17 分');assert.equal(h.elements.get('result-stars').textContent,'★★☆');assert.match(h.elements.get('result-captured').textContent,/6.*15/);assert.match(h.elements.get('result-hoses').textContent,/31/);assert.match(h.elements.get('result-nearest').textContent,/最近.*消防栓.*公尺/);assert.match(h.elements.get('result-best').textContent,/普通.*17/);assert.equal(h.elements.get('result-details').open,false);assert.equal(h.elements.get('result-dialog').scrollTop,0);assert.equal(h.box.document.activeElement.id,'result-score');assert.equal(h.storage.get('zteam-rpg-highscore-normal'),'17');
+ assert.equal(h.window.__game.getState().phase,'result');assert.equal(h.elements.get('result-score').textContent,'17 分');assert.equal(h.elements.get('result-stars').textContent,'★★☆');assert.match(h.elements.get('result-captured').textContent,/6.*15/);assert.match(h.elements.get('result-hoses').textContent,/31/);assert.match(h.elements.get('result-nearest').textContent,/最近.*消防栓.*公尺/);assert.match(h.elements.get('result-best').textContent,/普通.*17/);assert.equal(h.elements.get('result-details').open,false);assert.equal(h.elements.get('result-dialog').scrollTop,0);assert.equal(h.box.document.activeElement.id,'result-title');assert.equal(h.storage.get('zteam-rpg-highscore-normal'),'17');
 });
 test('B2 施工先於移動鎖定並清雙指，計時持續；原生取消清進度不殘留輸入',async()=>{
  const h=await harness();let construction={waterId:0,hoses:7,duration:3.5,elapsed:.5,contested:true},ticks=0,cancelled=0;
@@ -160,8 +185,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
  }
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
- const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,5);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3c')),imports.join(', '));
+ const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,6);
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3d')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -203,11 +228,11 @@ test('v2 遠分隊重選先釋放舊pins，復興兩題再舊莊仍以新建物�
 });
 test('v2 火場整棟polygon泛紅且像素焰黑煙隨時間動畫，mini閃火',async()=>{
  const h=await harness({wall:true});await h.click('start-game');
- const c=h.elements.get('game').getContext('2d'),draw=mini=>{h.drawCalls.length=0;h.box.drawRace(c,1,390,422,mini);return structuredClone(h.drawCalls);};
+ const c=h.elements.get('game').getContext('2d'),draw=mini=>{h.drawCalls.length=0;h.box.drawRace(c,1,390,422,mini);return h.drawCalls.map(v=>v[0]==='drawImage'?[v[0],v[1].url,...v.slice(2)]:structuredClone(v));};
  const a=draw(false),p=h.raceInputs[0].sites[0].building.p,s=h.window.__game.getState();
  assert.ok(a.some(v=>v[0]==='moveTo'&&v[1]===195+p[0]-s.x&&v[2]===211-p[1]+s.y),'entire resolved footprint');
- for(const color of ['#ed443580','#ff6b21','#252525cc'])assert.ok(a.some(v=>v[0]==='set'&&v[1]==='fillStyle'&&v[2]===color),color);
- h.box.performance.now=()=>2350;const b=draw(false);assert.notDeepEqual(a.filter(v=>v[0]==='fillRect'),b.filter(v=>v[0]==='fillRect'));
+ assert.ok(a.some(v=>v[0]==='set'&&v[1]==='fillStyle'&&v[2]==='#ed443580'));assert.ok(a.some(v=>v[0]==='drawImage'&&v[1].includes('/art/fire_big.png')));
+ h.box.performance.now=()=>2350;const b=draw(false);assert.notDeepEqual(a.filter(v=>v[0]==='drawImage'),b.filter(v=>v[0]==='drawImage'));
  const m=draw(true);h.box.performance.now=()=>2700;assert.notDeepEqual(m,draw(true),'mini fire flashes');
 });
 test('v2 無建物仍有像素火場，畫外箭頭留在螢幕內且距離用火場中心',async()=>{
@@ -216,18 +241,18 @@ test('v2 無建物仍有像素火場，畫外箭頭留在螢幕內且距離用�
  assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]==='火場 30 m'));
  const arrow=h.drawCalls.find(v=>v[0]==='rotate');assert.ok(arrow,'offscreen bearing arrow');
  const at=h.drawCalls.slice(0,h.drawCalls.indexOf(arrow)).findLast(v=>v[0]==='translate');assert.ok(at[1]>=12&&at[1]<=378&&at[2]>=12&&at[2]<=410);
- h.drawCalls.length=0;h.box.drawRace(c,1,390,422);assert.ok(h.drawCalls.some(v=>v[0]==='set'&&v[2]==='#ff6b21'));
+ h.drawCalls.length=0;h.box.drawRace(c,1,390,422);assert.ok(h.drawCalls.some(v=>v[0]==='drawImage'&&v[1].url.includes('/art/fire_big.png')));
 });
 test('v2 消防栓兩類圖示、目標閃黃旗幟、近處發光及遠處隱藏文字',async()=>{
  const h=await harness(),c=h.elements.get('game').getContext('2d');
- for(const [k,icon]of [['hydrant_above','栓'],['hydrant_under','▣']]){
+ for(const [k,icon]of [['hydrant_above',0],['hydrant_under',41]]){
   h.drawCalls.length=0;h.box.waterMark(c,{k,n:'同名水源',owner:null},0,0);
-  assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]===icon),k);
+  assert.ok(h.drawCalls.some(v=>v[0]==='drawImage'&&v[1].url.includes('/art/water_icons.png')&&v[2]===icon),k);
   assert.ok(h.drawCalls.some(v=>v[0]==='set'&&v[1]==='shadowBlur'&&v[2]>0));
  }
- const draw=(owner,target=true,near=true)=>{h.drawCalls.length=0;h.box.waterMark(c,{k:'hydrant_under',n:'同名水源',owner},0,0,1,false,null,target,near);return structuredClone(h.drawCalls);};
+ const draw=(owner,target=true,near=true)=>{h.drawCalls.length=0;h.box.waterMark(c,{k:'hydrant_under',n:'同名水源',owner},0,0,1,false,null,target,near);return h.drawCalls.map(v=>v[0]==='drawImage'?[v[0],v[1].url,...v.slice(2)]:structuredClone(v));};
  const a=draw(null);h.box.performance.now=()=>600;const b=draw(null);assert.notDeepEqual(a,b,'unowned target flashes yellow');
- for(const [owner,flag]of [['player','犀'],['npc1','車']])assert.ok(draw(owner).some(v=>v[0]==='fillText'&&v[1]===flag));
+ for(const [owner,grey]of [['player','none'],['npc1','grayscale(1)']]){const calls=draw(owner);assert.ok(calls.some(v=>v[0]==='drawImage'&&v[1].includes('/art/rhino_flag.png')));assert.equal(calls.some(v=>v[0]==='set'&&v[1]==='filter'&&v[2]==='grayscale(1)'),grey!=='none');}
  assert.ok(draw(null,false).some(v=>v[0]==='set'&&v[1]==='globalAlpha'&&v[2]===.25));
  assert.ok(!draw(null,true,false).some(v=>v[0]==='fillText'&&v[1]==='同名水源'));
 });
@@ -311,7 +336,7 @@ test('本機快轉NPC沿真實幾何與正常模型逐階一致，10秒出動、
 });
 test('本機快轉只乘玩家speed，保留原始dt、250ms卡頓丟棄與15cm碰撞細步',async()=>{
   for(const wall of [false,true]){
-    const h=await harness({wall,autoIntro:false,location:new URL('http://[::1]:8000/?test=1')}),get=()=>h.window.__game.getState();
+    const h=await harness({wall,movementOnly:true,autoIntro:false,location:new URL('http://[::1]:8000/?test=1')}),get=()=>h.window.__game.getState();
     const moves=[];h.box.stepMove=(position,dx,dy,dt,speed,canWalk)=>{
       moves.push({dt,speed});let last=position;
       return core.stepMove(position,dx,dy,dt,speed,(x,y)=>{
@@ -395,7 +420,7 @@ test('真音樂模型結算自然結束或尚未播放時只切靜音，不誤�
   await h.click('music-toggle');assert.equal(player.getState().muted,false);assert.equal(sources.length,count);
 });
 test('真實1m/unit與.32m碰撞不變，走5跑10且實際位移正確',async()=>{
-  const h=await harness();await h.click('start-game');const get=()=>h.window.__game.getState();
+  const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
   assert.equal(get().walkSpeed,5);assert.equal(get().runSpeed,10);
   assert.equal(get().viewWidthMeters,175);
   assert.equal(get().metersPerUnit,1);assert.equal(get().collisionRadius,.32);
@@ -420,7 +445,7 @@ test('遊戲迴圈十秒走50m跑100m，60/20/10FPS與半推均一致',async()=>
 });
 
 test('手機左搖桿保留半推走速、deadzone、圓形clamp且放開即停',async()=>{
-  const h=await harness();await h.click('start-game');
+  const h=await harness({movementOnly:true});await h.click('start-game');
   assert.ok(h.elements.has('joystick'));assert.ok(h.elements.has('stick-knob'));
   const stick=h.elements.get('joystick'),get=()=>h.window.__game.getState();
   stick.getBoundingClientRect=()=>({left:40,top:200,width:128,height:128});
@@ -440,7 +465,7 @@ test('手機左搖桿保留半推走速、deadzone、圓形clamp且放開即停'
 
 test('兩指任意順序按住跑，跑單按不動、放跑恢復走、放左即停',async()=>{
   for(const runFirst of [true,false]){
-    const h=await harness();await h.click('start-game');const get=()=>h.window.__game.getState();
+    const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
     const stick=h.elements.get('joystick');stick.getBoundingClientRect=()=>({left:40,top:200,width:128,height:128});
     const send=(id,type,pointerId,clientX=148,clientY=264)=>h.elements.get(id).listeners[type]?.({pointerId,clientX,clientY,preventDefault(){}});
     h.frames.shift()(1000);const start=get().x;
@@ -510,7 +535,7 @@ test('角色固定CSS高度且腳底世界定位，不受縮放影響',async()=>
     const h=await harness({viewport});await h.click('start-game');const expected=viewport[0]===1280?64:56;
     for(const button of [null,'zoom-in','zoom-out']){
       if(button)await h.click(button);h.drawCalls.length=0;h.window.__game.renderScene();
-      const draw=h.drawCalls.find(c=>c[0]==='drawImage');assert.ok(draw);
+      const draw=h.drawCalls.find(c=>c[0]==='drawImage'&&c[1].url?.includes('/assets/'));assert.ok(draw);
       const cssPerPixel=viewport[0]/h.elements.get('game').width;
       assert.equal(h.window.__game.getState().spriteCssHeight,expected);
       assert.ok(Math.abs(draw[9]*cssPerPixel-expected)<1e-9);

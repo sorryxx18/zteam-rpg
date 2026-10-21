@@ -9,6 +9,16 @@ export function rememberHighScore(storage,difficulty,score){
  try{const stored=Number(storage?.getItem(key));if(Number.isFinite(stored)&&stored>=0)previous=stored;}catch{}
  const best=Math.max(previous,score);try{storage?.setItem(key,String(best));}catch{}return best;
 }
+export function competition(water){
+ const player=water.filter(w=>w.owner==='player').length,npc=water.filter(w=>w.owner!==null&&w.owner!=='player').length,unclaimed=water.length-player-npc;
+ const outcome=player>npc?'win':player<npc?'loss':'draw';
+ return {player,npc,unclaimed,outcome,label:{win:'勝利！',loss:'被搶光了…',draw:'平手'}[outcome]};
+}
+export function rememberRecord(storage,difficulty,outcome){
+ const key=`zteam-rpg-record-${difficulty}`,record={win:0,loss:0,draw:0};
+ try{const saved=JSON.parse(storage?.getItem(key));for(const k of Object.keys(record))if(Number.isSafeInteger(saved?.[k])&&saved[k]>=0)record[k]=saved[k];}catch{}
+ record[outcome]++;try{storage?.setItem(key,JSON.stringify(record));}catch{}return record;
+}
 export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=()=>performance.now(),random=Math.random,canStand=()=>true,config={}}){
  const rules={...RULES,...config};
  const counts=NPC_COUNTS;

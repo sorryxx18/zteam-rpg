@@ -1,0 +1,119 @@
+{
+ "fire_engine": {
+  "cells_found": 8,
+  "expected": 8,
+  "grid": [
+   4,
+   2
+  ],
+  "cell_px": [
+   75,
+   64
+  ],
+  "layout": "rows: down,left,right,up; cols: light red, light blue"
+ },
+ "ladder_truck": {
+  "cells_found": 2,
+  "expected": 2,
+  "grid": [
+   1,
+   2
+  ],
+  "cell_px": [
+   112,
+   64
+  ],
+  "layout": "cols: left(side), down(front)"
+ },
+ "ambulance": {
+  "cells_found": 4,
+  "expected": 4,
+  "grid": [
+   2,
+   2
+  ],
+  "cell_px": [
+   63,
+   56
+  ],
+  "layout": "rows: left(side), down(front); cols: light red, light white"
+ },
+ "police_car": {
+  "cells_found": 4,
+  "expected": 4,
+  "grid": [
+   2,
+   2
+  ],
+  "cell_px": [
+   63,
+   48
+  ],
+  "layout": "rows: left(side), down(front); cols: light red, light blue"
+ },
+ "bystanders": {
+  "cells_found": 12,
+  "expected": 12,
+  "grid": [
+   4,
+   3
+  ],
+  "cell_px": [
+   52,
+   70
+  ],
+  "layout": "rows: office worker filming, auntie, student, delivery rider; cols: 3 idle frames (all facing down)"
+ },
+ "fire_big": {
+  "cells_found": 4,
+  "expected": 4,
+  "grid": [
+   1,
+   4
+  ],
+  "cell_px": [
+   68,
+   96
+  ],
+  "layout": "4-frame loop, base aligned bottom"
+ },
+ "fire_small": {
+  "cells_found": 4,
+  "expected": 4,
+  "grid": [
+   1,
+   4
+  ],
+  "cell_px": [
+   23,
+   32
+  ],
+  "layout": "4-frame loop"
+ },
+ "water_icons": {
+  "cells_found": 5,
+  "expected": 5,
+  "grid": [
+   1,
+   5
+  ],
+  "cell_px": [
+   41,
+   40
+  ],
+  "layout": "cols: hydrant(above), hydrant(underground cover), tank, pool, natural pond"
+ },
+ "rhino_flag": {
+  "cells_found": 2,
+  "expected": 2,
+  "grid": [
+   1,
+   2
+  ],
+  "cell_px": [
+   41,
+   40
+  ],
+  "layout": "2-frame wave"
+ }
+}

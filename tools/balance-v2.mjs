@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {createIncident,crowdSpeedFactor} from '../incident.mjs';
 import {RULES,NPC_COUNTS,createRace,buildRoadGraph,shortestRoute} from '../race.mjs';
 import {circleIntersectsPoly,stepMove} from '../core.mjs';
 import {resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,missionCandidates} from '../missions.mjs';
@@ -132,7 +133,7 @@ export function checkModelReady(factory=createRace){
  return {ready:errors.length===0,errors,kind:'synthetic contract probes; not balance data'};
 }
 export function simulateSample(geometry,sample){
- const nav=createNavigator(geometry);let now=0;
+ const nav=createNavigator(geometry),incident=createIncident({site:geometry.fire,roads:geometry.roads,canStand:nav.canStand});let now=0;
  const race=createRace({sites:[geometry.fire],water:geometry.water,stations:geometry.stations,roads:geometry.roads,buildings:geometry.buildings,canStand:nav.canStand,clock:()=>now,random:()=>{throw Error('Random sampling prohibited');},config:{difficulty:'normal',targetRadius:300,npcSpawnMode:'perimeter'}});
  let state=race.start(0),player={...state.spawn},plan=null,targetId=null;
  if(state.npcs.length!==NPC_COUNTS.normal)throw Error('Normal model NPC count mismatch');
@@ -154,15 +155,15 @@ export function simulateSample(geometry,sample){
    }
    while(plan?.length&&dist(player,plan[0])<1e-7)plan.shift();
    if(plan?.length){
-    const before=player,q=plan[0],audit={},next=walkToward(player,q,dt,nav.canStand,10,nav.clear,audit);
+    const before=player,q=plan[0],audit={},maxSpeed=10*crowdSpeedFactor(incident,180-state.remaining,player),next=walkToward(player,q,dt,nav.canStand,maxSpeed,nav.clear,audit);
     // The callback validates EVERY actual <=15cm axis leg, not a fictitious
     // full-frame L shape (which can cross a wall even when the real path does not).
-    const nextStandable=nav.canStand(next.x,next.y),movedMeters=dist(before,next),overSpeed=movedMeters>10*dt+1e-7;
+    const nextStandable=nav.canStand(next.x,next.y),movedMeters=dist(before,next),overSpeed=movedMeters>maxSpeed*dt+1e-7;
     movementAudit.validatedFrames++;movementAudit.actualAxisLegs+=audit.legs.length;
     if(!audit.acceptedMatchesNext)movementAudit.acceptedStateMismatches++;
     if(!nextStandable||overSpeed||!audit.acceptedMatchesNext){
      collisionViolations++;
-     const diagnostic={sample:sample.sample,tick,player:before,next,target:q,nextStandable,movedMeters,maxMeters:10*dt,overSpeed,acceptedStateMismatch:!audit.acceptedMatchesNext,audit};
+     const diagnostic={sample:sample.sample,tick,player:before,next,target:q,nextStandable,movedMeters,maxMeters:maxSpeed*dt,overSpeed,acceptedStateMismatch:!audit.acceptedMatchesNext,audit};
      throw Error('Illegal swept movement; refusing report: '+JSON.stringify(diagnostic));
     }
     // Counterfactual diagnostic only; never reject actual axis legs for an
@@ -188,9 +189,9 @@ export function simulateSample(geometry,sample){
  row.movementAudit=movementAudit;summarize([row]);return row;
 }
 export function runBalance(){
- const input=loadInputs();const sources=['race.mjs','core.mjs','missions.mjs','game.js','tools/balance-v2.mjs'].map(p=>({path:p,sha256:sha(fs.readFileSync(path.join(ROOT,p)))}));
+ const input=loadInputs();const sources=['race.mjs','core.mjs','missions.mjs','incident.mjs','game.js','tools/balance-v2.mjs'].map(p=>({path:p,sha256:sha(fs.readFileSync(path.join(ROOT,p)))}));
  const readiness=checkModelReady();
- const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:180,stepSeconds:.05,walkSpeed:5,runSpeed:10,selectedSpeed:10,collisionRadius:.32,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
+ const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:180,stepSeconds:.05,walkSpeed:5,runSpeed:10,selectedSpeed:10,crowdMultiplier:.6,crowdRadius:1.5,collisionRadius:.32,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
  if(readiness.ready){for(const sample of input.samples.samples){try{report.rows.push(simulateSample(prepareSample(input,sample),sample));}catch(e){report.rows.push({...sample,status:'blocked',error:e.message,captured:null,npc:null,unclaimed:null,totalHoses:null});}}report.status=report.rows.every(r=>r.status==='completed')?'completed':'incomplete';if(report.status==='completed')report.summary=summarize(report.rows);}
  for(const s of sources)if(sha(fs.readFileSync(path.join(ROOT,s.path)))!==s.sha256){report.status='invalid-model-changed-during-run';report.summary=null;}
  return report;

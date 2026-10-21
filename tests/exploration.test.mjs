@@ -78,9 +78,9 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
   await h.click('start-game');assert.equal(h.window.__game.getState().phase,'mission');
  }
 });
-test('v2 頂端模組統一6b1快取版本',async()=>{
+test('v2 頂端模組統一6b1p1快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,5);
- assert.ok(imports.every(path=>path.endsWith('?v=6b1')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6b1p1')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -412,7 +412,9 @@ test('五手機尺寸與電腦保持175m橫寬，縮放限制100~250m，resize�
     const width=h.elements.get('game').width;
     assert.equal(get().viewWidthMeters,175);assert.ok(Math.abs(width/get().zoom-175)<1e-9);
     h.frames.shift()(1000);
-    assert.ok(Math.abs(parseFloat(h.elements.get('scale-line').style.slice(6))-5*viewport[0]/175)<1e-9);
+    const rulerMetres=parseFloat(h.elements.get('scale-label').textContent),rulerPixels=parseFloat(h.elements.get('scale-line').style.slice(6));
+    assert.ok(Math.abs(rulerPixels-rulerMetres*viewport[0]/175)<1e-9);
+    assert.ok(rulerPixels>=40&&rulerPixels<=100);
     await h.click('zoom-in');assert.equal(get().viewWidthMeters,150);
     for(let i=0;i<20;i++)await h.click('zoom-in');assert.equal(get().viewWidthMeters,100);
     await h.click('zoom-out');assert.equal(get().viewWidthMeters,125);

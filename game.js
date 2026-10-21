@@ -1,8 +1,8 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6b1';
-import {createMusicPlayer} from './music.mjs?v=6b1';
-import {RULES,createRace} from './race.mjs?v=6b1';
-import {localTestRate} from './qa-clock.mjs?v=6b1';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6b1';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6b1p1';
+import {createMusicPlayer} from './music.mjs?v=6b1p1';
+import {RULES,createRace} from './race.mjs?v=6b1p1';
+import {localTestRate} from './qa-clock.mjs?v=6b1p1';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6b1p1';
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
@@ -160,7 +160,7 @@ function checkIntersection(roads){
 }
 function updateLocation(){
   const roads=loadedRoads();roadName=nearestRoad(x,y,roads).name;
-  $('road').textContent=roadName;
+  $('road').textContent=roadName;$('road').title=`目前所在：${roadName}`;
   checkIntersection(roads);
   const s=base.stations.find(s=>s.name===station);if(!s)return;
   const dx=x-s.x,dy=y-s.y,d=Math.hypot(dx,dy);
@@ -194,6 +194,14 @@ $('overview-open').addEventListener('click',async()=>{
 });
 $('overview-close').addEventListener('click',()=>$('overview-dialog').close());
 $('overview-dialog').addEventListener('close',()=>{clearInput();canvas.focus({preventScroll:true});});
+function distanceScale(sceneZoom,cssWidth,backingWidth){
+  const ppm=sceneZoom*cssWidth/backingWidth,target=70/ppm;
+  const power=10**Math.floor(Math.log10(target));
+  // 1/2/5 has a 2.5x gap: nearest-to-70 yields ~40–100 CSS px.
+  const candidates=[1,2,5,10].map(n=>n*power);
+  const metres=candidates.reduce((a,b)=>Math.abs(a-target)<=Math.abs(b-target)?a:b);
+  return {metres,pixels:metres*ppm};
+}
 function renderScene(){
   if(!base){ctx.fillStyle='#9ca77b';ctx.fillRect(0,0,width,height);return;}
   const sceneZoom=phase==='intro'?zoom*(.2+.8*Math.min(1,(performance.now()-introAt)/2000)):zoom;
@@ -201,7 +209,10 @@ function renderScene(){
   drawRoadSigns(ctx,sceneZoom,width,height);drawRace(ctx,sceneZoom,width,height);
   if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(width/2,height/2,zoom*collisionRadius,zoom*collisionRadius/2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteCssHeight*width/canvas.getBoundingClientRect().width/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(width/2-32*size),Math.round(height/2-f.footY*size),64*size,80*size);}}
   drawWorld(mini,.16,128,100,true);drawRace(mini,.16,128,100,true);playerArrow(mini,64,50);
-  if(ready){updateLocation();$('scale-line').setAttribute('style',`width:${5*zoom*canvas.getBoundingClientRect().width/width}px`);}
+  if(ready)updateLocation();
+  const ruler=distanceScale(sceneZoom,canvas.getBoundingClientRect().width,width);
+  $('scale-line').setAttribute('style',`width:${ruler.pixels}px`);
+  $('scale-label').textContent=`${Number(ruler.metres.toPrecision(10))} m`;
   updateMusicUI();
   if(phase==='result')drawResultMap();
 }
@@ -224,22 +235,25 @@ function waterMark(c,source,px,py,size=1,result=false,index=null,target=true,nea
   if(owner){c.strokeStyle=isPlayer?'#20734b':'#5a6169';c.beginPath();c.moveTo(7,5);c.lineTo(7,-15);c.stroke();c.fillStyle=isPlayer?'#238a50':'#69727a';c.fillRect(7,-15,16,11);c.fillStyle='#fff';c.font='8px sans-serif';c.fillText(isPlayer?'犀':'車',15,-7);}
   if(result||near){c.font='11px sans-serif';c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3;const label=result?String(index+1):source.n;c.strokeText(label,0,24);c.fillText(label,0,24);}c.restore();
 }
+function drawFire(c,fx,fy,ratio,isMini,frame){
+  c.save();c.translate(fx,fy);c.scale(isMini?1:ratio,isMini?1:ratio);
+  if(!isMini){c.fillStyle='#252525cc';for(let i=0;i<4;i++){const rise=(frame*4+i*15)%60;c.fillRect(-20+i*9+(frame%3)*2,-44-rise,18+i*3,16+i*3);}}
+  c.fillStyle=isMini&&frame%2?'#ffe64d':'#ff6b21';
+  for(let i=0;i<3;i++){const tall=(isMini?5:36)+(frame+i)%3*(isMini?1:6);c.fillRect((i-1)*(isMini?2:12)-(isMini?2:8),-tall,isMini?3:16,tall);}
+  c.fillStyle='#ffe64d';c.fillRect(isMini?-2:-6,isMini?-3:-22,isMini?2:12,isMini?3:22);c.restore();
+}
 function drawRace(c,scale,w,h,isMini=false){
   const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
   const px=v=>w/2+(v-x)*scale,py=v=>h/2-(v-y)*scale,ratio=isMini?1:w/canvas.getBoundingClientRect().width;
   c.save();
-  const fx=px(site.x),fy=py(site.y),frame=Math.floor(performance.now()/250),unit=isMini?1:ratio;
+  const fx=px(site.x),fy=py(site.y),frame=Math.floor(performance.now()/250);
   if(!isMini&&introSite?.building){
     const p=introSite.building.p;c.beginPath();
     for(let i=0;i<p.length;i+=2)i?c.lineTo(px(p[i]),py(p[i+1])):c.moveTo(px(p[i]),py(p[i+1]));
     c.closePath();c.fillStyle='#ed443580';c.fill();c.strokeStyle='#ed4435';c.lineWidth=2*ratio;c.stroke();
   }
-  // Pixel flames remain visible even when no footprint was within 40m.
-  c.save();c.translate(fx,fy);c.scale(unit,unit);
-  if(!isMini){c.fillStyle='#252525cc';for(let i=0;i<4;i++){const rise=(frame*3+i*9)%34;c.fillRect(-10+i*5+(frame%3)-1,-18-rise,10+i*2,9+i*2);}}
-  c.fillStyle=isMini&&frame%2?'#ffe64d':'#ff6b21';
-  for(let i=0;i<3;i++){const tall=(isMini?5:14)+(frame+i)%3*(isMini?1:3);c.fillRect((i-1)*(isMini?2:5)-2,-tall,isMini?3:6,tall);}
-  c.fillStyle='#ffe64d';c.fillRect(-2,isMini?-3:-8,isMini?2:4,isMini?3:8);c.restore();
+  // Screen-space art only: never alter site geometry, collision or world metres.
+  drawFire(c,fx,fy,ratio,isMini,frame);
   if(!isMini){
     c.font=`bold ${14*ratio}px sans-serif`;c.textAlign='center';c.fillStyle='#c52e24';
     if(fx<0||fx>w||fy<0||fy>h){
@@ -247,7 +261,7 @@ function drawRace(c,scale,w,h,isMini=false){
       const ax=w/2+dx*t,ay=h/2+dy*t;c.save();c.translate(ax,ay);c.rotate(Math.atan2(dy,dx));c.scale(ratio,ratio);
       c.beginPath();c.moveTo(12,0);c.lineTo(-8,-7);c.lineTo(-4,0);c.lineTo(-8,7);c.closePath();c.fill();c.restore();
       c.fillText(`火場 ${Math.round(Math.hypot(site.x-x,site.y-y))} m`,Math.max(48*ratio,Math.min(w-48*ratio,ax)),Math.max(14*ratio,Math.min(h-8*ratio,ay-15*ratio)));
-    }else c.fillText('火警',fx,fy-24*ratio);
+    }else c.fillText('火警',fx,fy-116*ratio);
   }
   // Decode ids are cell-row keys; race ids are numeric and must never be used
   // to match ambient points (names and coordinates can legitimately repeat).

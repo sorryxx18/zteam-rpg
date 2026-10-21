@@ -1,10 +1,10 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3e';
-import {createMusicPlayer} from './music.mjs?v=6v3e';
-import {RULES,NPC_COUNTS,createRace,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3e';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDimensions} from './incident.mjs?v=6v3e';
-import {localTestRate} from './qa-clock.mjs?v=6v3e';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3e';
-import {layoutResultMarkers,createNoticeQueue} from './ui.mjs?v=6v3e';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3f';
+import {createMusicPlayer} from './music.mjs?v=6v3f';
+import {RULES,NPC_COUNTS,createRace,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3f';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v3f';
+import {localTestRate} from './qa-clock.mjs?v=6v3f';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3f';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites} from './ui.mjs?v=6v3f';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
@@ -217,6 +217,7 @@ function renderScene(){
   drawRoadSigns(ctx,sceneZoom,width,height);drawRace(ctx,sceneZoom,width,height);
   if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(width/2,height/2,zoom*collisionRadius,zoom*collisionRadius/2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteCssHeight*width/canvas.getBoundingClientRect().width/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(width/2-32*size),Math.round(height/2-f.footY*size),64*size,80*size);}}
   if(ready&&performance.now()-borrowAt<1200){ctx.save();ctx.font=`bold ${16*width/canvas.getBoundingClientRect().width}px sans-serif`;ctx.textAlign='center';ctx.strokeStyle='#263e39';ctx.lineWidth=3;ctx.fillStyle='#ffe64d';const py=height/2-(spriteCssHeight+12)*width/canvas.getBoundingClientRect().width;ctx.strokeText('借過借過',width/2,py);ctx.fillText('借過借過',width/2,py);ctx.restore();}
+  drawHydrantNames(ctx,sceneZoom,width,height);
   drawWorld(mini,.16,128,100,true);drawRace(mini,.16,128,100,true);playerArrow(mini,64,50);
   if(ready)updateLocation();
   const ruler=distanceScale(sceneZoom,canvas.getBoundingClientRect().width,width);
@@ -248,7 +249,14 @@ function waterMark(c,source,px,py,size=1,result=false,index=null,target=true,nea
   c.fillStyle=owner?(isPlayer?'#238a50':'#69727a'):target?(Math.floor(performance.now()/500)%2?'#ffe64d':'#fff4a3'):'#d3ddda';
   c.strokeStyle='#263e39';c.lineWidth=1;c.beginPath();if(source.k==='hydrant_under')c.rect(-12,-12,24,24);else c.arc(0,0,14,0,Math.PI*2);c.fill();c.stroke();c.shadowBlur=0;
   if(owner)sprite(c,'rhino_flag',0,Math.floor(performance.now()/400)%2,0,10,36,!isPlayer);else sprite(c,'water_icons',0,source.k==='hydrant_above'?0:1,0,12,34);
-  if(!result&&near){c.font='11px sans-serif';c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3;const label=result?String(index+1):source.n;c.strokeText(label,0,24);c.fillText(label,0,24);}c.restore();
+  c.restore();
+}
+function drawHydrantNames(c,scale,w,h){
+ const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
+ const sources=snapshot?.status==='idle'?selectObjectives(water,introSite,300,10):snapshot?.water||[],ratio=w/canvas.getBoundingClientRect().width;
+ c.save();c.textAlign='center';c.font=`${11*ratio}px sans-serif`;c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3*ratio;
+ for(const source of sources){const a=w/2+(source.x-x)*scale,b=h/2-(source.y-y)*scale;if(Math.hypot(source.x-x,source.y-y)>30||a<-30||a>w+30||b<-30||b>h+30)continue;c.strokeText(source.n,a,b+24*ratio);c.fillText(source.n,a,b+24*ratio);}
+ c.restore();
 }
 function drawFire(c,fx,fy,ratio,isMini,frame){
   c.save();c.translate(fx,fy);c.scale(isMini?1:ratio,isMini?1:ratio);
@@ -261,20 +269,25 @@ function drawRace(c,scale,w,h,isMini=false){
   const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
   const px=v=>w/2+(v-x)*scale,py=v=>h/2-(v-y)*scale,ratio=isMini?1:w/canvas.getBoundingClientRect().width;
   c.save();
-  const fx=px(site.x),fy=py(site.y),frame=Math.floor(performance.now()/250);
+  const fx=px(site.x),fy=py(site.y),frame=Math.floor(performance.now()/250),light=Math.floor(performance.now()/400)%2;
   if(!isMini&&introSite?.building){
     const p=introSite.building.p;c.beginPath();
     for(let i=0;i<p.length;i+=2)i?c.lineTo(px(p[i]),py(p[i+1])):c.moveTo(px(p[i]),py(p[i+1]));
     c.closePath();c.fillStyle='#ed443580';c.fill();c.strokeStyle='#ed4435';c.lineWidth=2*ratio;c.stroke();
   }
   // Only screen-space art. Geometry, objectives and NPC routes remain unchanged.
-  const activeWater=snapshot?.status==='idle'?selectObjectives(water,introSite,300,10):snapshot?.water||[],visibleWater=activeWater.filter(v=>px(v.x)>=-30&&px(v.x)<=w+30&&py(v.y)>=-30&&py(v.y)<=h+30),parked=visibleWater.filter(v=>v.owner&&v.owner!=='player').map(v=>{const size=vehicleDimensions('fire_engine',2);return {x:v.x+size.width/2+18*ratio/scale+1,y:v.y};}),activeNPC=(snapshot?.npcs||[]).filter(n=>n.active);
+  const activeWater=snapshot?.status==='idle'?selectObjectives(water,introSite,300,10):snapshot?.water||[],visibleWater=activeWater.filter(v=>px(v.x)>=-30&&px(v.x)<=w+30&&py(v.y)>=-30&&py(v.y)<=h+30),activeNPC=(snapshot?.npcs||[]).filter(n=>n.active);
+  const screenVehicle=(kind,row,col,v)=>({kind,row,col,x:px(v.x),y:py(v.y),...vehicleDisplayDimensions(kind,row,spriteCssHeight*ratio)});
+  const parked=isMini?[]:visibleWater.filter(v=>v.owner&&v.owner!=='player').map(v=>{const q=screenVehicle('fire_engine',2,light,v);return {...q,x:q.x+q.width/2+18*ratio+ratio};});
+  const sceneVehicles=isMini?[]:(incident?.vehicles||[]).map(v=>screenVehicle(v.kind,v.row,v.kind==='ladder_truck'?0:light,v));
+  const obstacles=isMini?[]:[{x:fx,y:fy,width:20*ratio,height:24*ratio,length:0},...visibleWater.map(v=>({x:px(v.x),y:py(v.y)+6*ratio,width:34*ratio,height:52*ratio,length:0})),...activeNPC.map(n=>screenVehicle('fire_engine',truckRow({dx:n.direction.x,dy:n.direction.y}),0,n))];
+  const placed=isMini?[]:layoutVehicleSprites([...sceneVehicles,...parked],obstacles);
   let sprites=0,spriteLimit=Math.max(0,59-visibleWater.length-parked.length-activeNPC.length);const paint=(name,row,col,a,b,height)=>{const sw=height*ART[name][0]/ART[name][1];if(sprites>=spriteLimit||a+sw/2<0||a-sw/2>w||b<0||b-height>h)return;if(sprite(c,name,row,col,a,b,height))sprites++;};
-  const vehicle=(kind,row,col,v)=>{const size=vehicleDimensions(kind,row);paint(kind,row,col,px(v.x),py(v.y)+size.height*scale/2,size.height*scale);};
-  const elapsed=snapshot?RULES.roundSeconds-snapshot.remaining:0,light=Math.floor(performance.now()/400)%2;
+  const vehicle=v=>paint(v.kind,v.row,v.col,v.x,v.y+v.height/2,v.height);
+  const elapsed=snapshot?RULES.roundSeconds-snapshot.remaining:0;
   if(isMini)drawFire(c,fx,fy,ratio,true,frame);
   else if(incident){
-    for(const v of incident.vehicles)vehicle(v.kind,v.row,v.kind==='ladder_truck'?0:light,v);
+    for(const v of placed.slice(0,sceneVehicles.length))vehicle(v);
     if(incident.cordon){const {a,b}=incident.cordon,dx=px(b.x)-px(a.x),dy=py(b.y)-py(a.y),n=Math.max(1,Math.ceil(Math.hypot(dx,dy)/(8*ratio)));c.lineWidth=5*ratio;for(let i=0;i<n;i++){c.strokeStyle=i%2?'#263e39':'#ffe64d';c.beginPath();c.moveTo(px(a.x)+dx*i/n,py(a.y)+dy*i/n);c.lineTo(px(a.x)+dx*(i+1)/n,py(a.y)+dy*(i+1)/n);c.stroke();}}
     for(const person of incident.people.slice(0,crowdCount(elapsed)))paint('bystanders',person.variant,Math.floor(performance.now()/1000*person.speed+person.offset)%3,px(person.x),py(person.y),48*ratio);
     paint('fire_big',0,frame%4,px(incident.centre.x),py(incident.centre.y),130*ratio);
@@ -295,7 +308,7 @@ function drawRace(c,scale,w,h,isMini=false){
   const npcTargets=new Set((snapshot?.npcs||[]).filter(n=>n.active&&n.target!==null&&!(n.cooldownRemaining>0)).map(n=>n.target));
   const objectiveIds=new Set(activeWater.map(s=>s.sourceId??s.id));
   const sources=water.filter(s=>objectiveIds.has(s.id)).map(s=>({source:targets.get(s.id)||s,target:true}));
-  if(!isMini){spriteLimit=59-visibleWater.length-activeNPC.length;for(const v of parked)vehicle('fire_engine',2,light,v);}
+  if(!isMini){spriteLimit=59-visibleWater.length-activeNPC.length;for(const v of placed.slice(sceneVehicles.length))vehicle(v);}
   // Ambient sources first, so a dim colocated point cannot cover a target flag.
   sources.sort((a,b)=>Number(a.target)-Number(b.target));
   let ambientAllowance=Math.max(0,59-sprites-(snapshot?.npcs.filter(n=>n.active).length||0)-(snapshot?.water.filter(s=>s.owner!==null&&s.owner!=='player').length||0)-sources.filter(s=>s.target).length);
@@ -313,7 +326,7 @@ function drawRace(c,scale,w,h,isMini=false){
     }
   }
   spriteLimit=59;for(const npc of snapshot?.npcs||[]){if(!npc.active)continue;const a=px(npc.x),b=py(npc.y);if(isMini){c.fillStyle='#e13232';c.beginPath();c.arc(a,b,3,0,Math.PI*2);c.fill();continue;}c.save();c.translate(a,b);c.rotate(Math.atan2(-npc.direction.y,npc.direction.x));c.scale(ratio,ratio);
-    c.restore();vehicle('fire_engine',truckRow({dx:npc.direction.x,dy:npc.direction.y}),light,npc);
+    c.restore();vehicle(screenVehicle('fire_engine',truckRow({dx:npc.direction.x,dy:npc.direction.y}),light,npc));
   }if(!isMini)renderedSprites=sprites;c.restore();
 }
 function drawResultMap(){

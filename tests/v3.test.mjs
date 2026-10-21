@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {RULES,createRace} from '../race.mjs';
 import {selectObjectives,waterLabel,missionCandidates} from '../missions.mjs';
 test('v3 round lasts 180 seconds and other engines dispatch after 5 seconds',()=>{
- assert.equal(RULES.roundSeconds,180);assert.equal(RULES.npcDelaySeconds,5);assert.equal(RULES.npcSpeedRatio,1);
+ assert.equal(RULES.roundSeconds,180);assert.equal(RULES.npcDelaySeconds,5);assert.equal(RULES.npcSpeedRatio,.9);
 });
 test('v3 chooses only the nearest 15 without changing the 300m boundary',()=>{
  const sources=Array.from({length:22},(_,i)=>({x:i,y:0}));assert.deepEqual(selectObjectives(sources,{x:0,y:0}),sources.slice(0,15));

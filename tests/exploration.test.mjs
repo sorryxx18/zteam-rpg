@@ -58,6 +58,16 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('第二輪：手機車輛依實際人物畫面高度，消防栓名稱最後覆畫在人物與火煙之上',async()=>{
+ for(const viewport of [[390,640],[780,1000]]){
+  const h=await harness({viewport});await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();
+  const calls=h.drawCalls,player=calls.find(c=>c[0]==='drawImage'&&c[1].url?.includes('/assets/rhino')),names=new Set(h.window.__game.getState().race.water.map(w=>w.n));assert.ok(player);
+  const labels=calls.map((c,i)=>[c,i]).filter(([c])=>c[0]==='fillText'&&names.has(c[1]));assert.ok(labels.length>0);assert.ok(labels.every(([,i])=>i>calls.findLastIndex(c=>c[0]==='drawImage')),'名稱必須在所有火煙、車輛及人物之後覆畫');
+  for(const [kind,ratio]of Object.entries({fire_engine:1.3,ladder_truck:1.6,ambulance:1.1,police_car:1})){
+   const vehicle=calls.find(c=>c[0]==='drawImage'&&c[1].url?.includes('/art/'+kind+'.png'));assert.ok(vehicle,kind);const row=vehicle[3]/vehicle[5],d=h.box.vehicleDisplayDimensions(kind,row,player[9]);assert.ok(Math.abs(vehicle[9]-d.height)<1e-7,kind);
+  }
+ }
+});
 test('追加：500m載入、10→14→18→22→26分波、公告排隊與標記三秒閃爍',async()=>{
  const h=await harness(),make=h.box.createRace,fetch=h.box.fetch,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');
  h.box.createRace=o=>make({...o,config:{...o.config,npcCount:0}});h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[...Array.from({length:10},(_,i)=>40+i*10),...Array.from({length:8},(_,i)=>310+i*10),...Array.from({length:8},(_,i)=>410+i*10)].map(d=>[home.x-30+d,home.y,'hydrant_above'])}:fetch(url);
@@ -194,7 +204,7 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,7);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3e')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3f')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

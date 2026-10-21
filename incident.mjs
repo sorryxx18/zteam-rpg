@@ -4,6 +4,11 @@ const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export function vehicleDimensions(kind,row=0){
  const length={fire_engine:9,ladder_truck:12,ambulance:6,police_car:5}[kind],pixels=kind==='fire_engine'?([62,72,72,60][row]):kind==='ladder_truck'?108:kind==='ambulance'?(row?54:61):(row?47:61),[w,h]=ART[kind];return {length,width:w*length/pixels,height:h*length/pixels};
 }
+// World dimensions above are scenery anchors only. Display size follows the character.
+export function vehicleDisplayDimensions(kind,row=0,playerHeight=64){
+ const anchor=vehicleDimensions(kind,row),length=playerHeight*{fire_engine:1.3,ladder_truck:1.6,ambulance:1.1,police_car:1}[kind],factor=length/anchor.length;
+ return {length,width:anchor.width*factor,height:anchor.height*factor};
+}
 const vehicleRow=q=>Math.abs(q.dx)>=Math.abs(q.dy)?(q.dx<0?1:2):(q.dy>0?3:0);
 export const crowdCount=seconds=>Math.min(15,6+Math.floor(Math.max(0,seconds)/45)*3);
 export const crowdSpeedFactor=(scene,seconds,player)=>scene?.people.slice(0,crowdCount(seconds)).some(p=>dist(p,player)<=1.5)?.6:1;

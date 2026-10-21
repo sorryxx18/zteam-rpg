@@ -120,7 +120,7 @@ test('500m boundary is inclusive and route cost beats Euclidean target distance'
  assert.equal(race.start().total,3);alt.race.start();alt.setTime(10000);assert.equal(alt.race.tick(10,{x:-999,y:0}).npcs[0].target,1);
 });
 test('road movement follows bends, offroad targets cannot cause a final straight-line jump',()=>{
- const {race,setTime}=setup({stations:[{x:0,y:0}],water:[{k:'hydrant_under',n:'終點',x:100,y:100},{k:'hydrant_under',n:'建物假點',x:50,y:50}],roads:[road(0,0,0,100,100,100)]});race.start();setTime(20000);let s=race.tick(10,{x:-999,y:0});assert.equal(s.npcs[0].x,0);assert.ok(Math.abs(s.npcs[0].y-100)<1e-7);assert.equal(s.npcs[0].target,0);setTime(40000);s=race.tick(20,{x:-999,y:0});assert.equal(s.water[0].owner,'npc1');assert.equal(s.water[1].owner,null);assert.ok(s.npcs.every(n=>n.target===null));
+ const {race,setTime}=setup({stations:[{x:0,y:0}],water:[{k:'hydrant_under',n:'終點',x:100,y:100},{k:'hydrant_under',n:'建物假點',x:50,y:50}],roads:[road(0,0,0,100,100,100)]});race.start();setTime(20000);let s=race.tick(10,{x:-999,y:0});assert.equal(s.npcs[0].x,0);assert.ok(Math.abs(s.npcs[0].y-10*RULES.runSpeed*RULES.npcSpeedRatio)<1e-7);assert.equal(s.npcs[0].target,0);setTime(40000);s=race.tick(20,{x:-999,y:0});assert.equal(s.water[0].owner,'npc1');assert.equal(s.water[1].owner,null);assert.ok(s.npcs.every(n=>n.target===null));
 });
 test('road routing uses all vertices, weighted detour, deduplication and projections', () => {
  const g=buildRoadGraph([road(0,0,0,100,100,100,100,0),road(100,0,100,100,0,100,0,0)]);

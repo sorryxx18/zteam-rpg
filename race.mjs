@@ -1,7 +1,7 @@
 import {circleIntersectsPoly} from './core.mjs';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
-export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
+export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:.9});
 const freeze = value => {if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
 export function roundStars(captured,total){const ratio=total>0?captured/total:0;return ratio<.3?1:ratio<.6?2:3;}
 export function rememberHighScore(storage,difficulty,score){

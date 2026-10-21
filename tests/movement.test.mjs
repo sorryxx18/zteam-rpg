@@ -3,20 +3,20 @@ import assert from 'node:assert/strict';
 import * as core from '../core.mjs';
 
 test('ten seconds uses full normal dt at 60/20/10 FPS, analog and diagonal distances',()=>{
-  for(const fps of [60,20,10])for(const speed of [1.4,3])for(const [x,y,magnitude] of [[1,0,1],[1,1,1],[.5,0,.5],[0,0,0]]){
+  for(const fps of [60,20,10])for(const speed of [5,10])for(const [x,y,magnitude] of [[1,0,1],[1,1,1],[.5,0,.5],[0,0,0]]){
     let p={x:0,y:0};
     for(let i=0;i<fps*10;i++)p=core.stepMove(p,x,y,1/fps,speed,()=>true);
     assert.ok(Math.abs(Math.hypot(p.x,p.y)-10*speed*magnitude)<1e-9,`${fps} FPS ${speed} ${x},${y}`);
   }
-  assert.equal(core.stepMove({x:0,y:0},1,0,.25,3,()=>true).x,.75);
+  assert.ok(Math.abs(core.stepMove({x:0,y:0},1,0,.25,10,()=>true).x-2.5)<1e-9);
 });
 
 test('substeps <= .15m stop thin walls and unknown cells; >.25s stalls are discarded',()=>{
   let largest=0,last=0;
-  const p=core.stepMove({x:0,y:0},1,0,.25,3,x=>{largest=Math.max(largest,Math.abs(x-last));last=x;return !(x>=.3&&x<=.5);});
+  const p=core.stepMove({x:0,y:0},1,0,.25,10,x=>{largest=Math.max(largest,Math.abs(x-last));last=x;return !(x>=.3&&x<=.5);});
   assert.ok(p.x<.3);assert.ok(largest<=.150000001);
-  for(const dt of [.250001,1,10,-1,NaN,Infinity])assert.deepEqual(core.stepMove({x:2,y:3},1,0,dt,3,()=>true),{x:2,y:3});
-  assert.deepEqual(core.stepMove({x:0,y:0},1,0,.1,3,()=>false),{x:0,y:0});
+  for(const dt of [.250001,1,10,-1,NaN,Infinity])assert.deepEqual(core.stepMove({x:2,y:3},1,0,dt,10,()=>true),{x:2,y:3});
+  assert.deepEqual(core.stepMove({x:0,y:0},1,0,.1,10,()=>false),{x:0,y:0});
 });
 
 test('shared .32m disk footprint catches corners and very thin polygons',()=>{

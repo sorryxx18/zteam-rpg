@@ -133,7 +133,7 @@ export function checkModelReady(factory=createRace){
 }
 export function simulateSample(geometry,sample){
  const nav=createNavigator(geometry);let now=0;
- const race=createRace({sites:[geometry.fire],water:geometry.water,stations:geometry.stations,roads:geometry.roads,buildings:geometry.buildings,canStand:nav.canStand,clock:()=>now,random:()=>{throw Error('Random sampling prohibited');},config:{difficulty:'normal',targetRadius:300}});
+ const race=createRace({sites:[geometry.fire],water:geometry.water,stations:geometry.stations,roads:geometry.roads,buildings:geometry.buildings,canStand:nav.canStand,clock:()=>now,random:()=>{throw Error('Random sampling prohibited');},config:{difficulty:'normal',targetRadius:300,npcSpawnMode:'perimeter'}});
  let state=race.start(0),player={...state.spawn},plan=null,targetId=null;
  if(state.npcs.length!==NPC_COUNTS.normal)throw Error('Normal model NPC count mismatch');
  let movementSeconds=0,constructionSeconds=0,idleSeconds=0,movementMeters=0,collisionViolations=0,lastDecision=null;

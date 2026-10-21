@@ -1,8 +1,8 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3a';
-import {createMusicPlayer} from './music.mjs?v=6v3a';
-import {RULES,NPC_COUNTS,createRace} from './race.mjs?v=6v3a';
-import {localTestRate} from './qa-clock.mjs?v=6v3a';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3a';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3b';
+import {createMusicPlayer} from './music.mjs?v=6v3b';
+import {RULES,NPC_COUNTS,createRace} from './race.mjs?v=6v3b';
+import {localTestRate} from './qa-clock.mjs?v=6v3b';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3b';
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
@@ -94,7 +94,7 @@ async function goStation(name){
   const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,300).map(async key=>{const r=await fetch(`./data/w/${key}.json`,{cache:'no-cache'});if(!r.ok)throw Error('消防栓格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
   const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,15);
   if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
-  race=createRace({sites:[introSite],water:objectives.map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:300,difficulty}});
+  race=createRace({sites:[introSite],water:objectives.map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:300,difficulty,npcSpawnMode:'perimeter'}});
   $('mission-rules').textContent=`任務3分鐘，靠近消防栓3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${NPC_COUNTS[difficulty]}台，10秒後出動。`;
   $('mission-support').hidden=!['復興分隊','永吉分隊'].includes(station);$('mission-support').textContent='周邊支援';
   x=introSite.x;y=introSite.y;direction='down';nearbyKey=cellKey(x,y);phase='mission';missionAt=performance.now();clearInput();$('start-screen').close();$('result-dialog').close();$('intro-address').textContent=`${introSite.n}｜${introSite.addr}`;$('intro').hidden=true;$('mission-detail').textContent=`${introSite.n}｜${introSite.addr}｜${introSite.use||introSite.u||'用途未提供'}`;$('mission-card').hidden=false;message('火警出題！記住地址，搶下周邊消防栓。',2000);canvas.focus({preventScroll:true});

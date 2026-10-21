@@ -1,7 +1,7 @@
 import {circleIntersectsPoly} from './core.mjs';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
-export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:10,npcStaggerSeconds:5,spawnMode:'near-site',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
+export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:10,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
 const freeze = value => {if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
 export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=()=>performance.now(),random=Math.random,canStand=()=>true,config={}}){
  const rules={...RULES,...config};
@@ -14,6 +14,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
  for(const w of water)if(!pointOK(w)||!w.n||!['hydrant_above','hydrant_under'].includes(w.k))throw new Error('水源名稱、座標或類型無效');
  for(const s of stations)if(!pointOK(s))throw new Error('分隊座標無效');
  for(const key of ['roundSeconds','npcDelaySeconds','npcStaggerSeconds','spawnDistance','targetRadius','captureRadius','runSpeed','npcSpeedRatio'])if(!Number.isFinite(rules[key])||rules[key]<0)throw new Error('規則數值無效');
+ if(!['nearest-station','perimeter'].includes(rules.npcSpawnMode))throw new Error('消防車出生模式無效');
  if(!['near-site','nearest-station'].includes(rules.spawnMode)||!Number.isInteger(rules.npcCount)||rules.npcCount<0||rules.npcCount>4)throw new Error('規則模式無效');
  const graph=buildRoadGraph(roads,{buildings});let state={status:'idle',difficulty:rules.difficulty,site:null,spawn:null,remaining:rules.roundSeconds,captured:0,totalHoses:0,construction:null,total:0,water:[],npcs:[]},events=[],started=0,elapsed=0,meta=[];
  let cancelled=new Set(),geometryCache=new WeakMap(),lastPlayer=null;
@@ -72,7 +73,8 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   if(!spawn)throw new Error('找不到可站立的出生位置');
   started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();lastPlayer=null;
   state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,totalHoses:0,construction:null,total:targets.length,water:targets,npcs:[]};
-  for(let i=0;i<rules.npcCount&&near.length;i++){const s=near[i]??near[0],p=project(graph,s)?.q??s;state.npcs.push({id:`npc${i+1}`,x:p.x,y:p.y,direction:{x:0,y:0},active:false,target:null,route:[],construction:null,cooldownRemaining:0});meta.push({delay:rules.npcDelaySeconds+(i>=near.length?rules.npcStaggerSeconds:0),horn:-Infinity});}
+  const entries=rules.npcSpawnMode==='perimeter'?perimeterEntries(graph,site,rules.npcCount,canStand):null;
+  for(let i=0;i<rules.npcCount&&(entries||near.length);i++){const s=near[i]??near[0],p=entries?entries[i]:project(graph,s)?.q??s;state.npcs.push({id:`npc${i+1}`,x:p.x,y:p.y,direction:{x:0,y:0},active:false,target:null,route:[],construction:null,cooldownRemaining:0});meta.push({delay:rules.npcDelaySeconds+(!entries&&i>=near.length?rules.npcStaggerSeconds:0),horn:-Infinity});}
   return snapshot();
  }
  // Distance along the actual road route to first entry into the capture circle.
@@ -125,6 +127,30 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
 }
 const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
 const pointOK = p => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+// Spawn on existing safe road centrelines in the authorised annulus. No snaps,
+// invented edges, station fallback, speed changes or target-dependent placement.
+function perimeterEntries(graph,site,count,canStand){
+ const candidates=[],seen=new Set();
+ for(const e of graph.edges){
+  if(e.w<.64)continue;
+  const dx=e.b.x-e.a.x,dy=e.b.y-e.a.y,a=dx*dx+dy*dy,px=e.a.x-site.x,py=e.a.y-site.y,b=2*(px*dx+py*dy),samples=[0,1];
+  for(const radius of [250,275,300]){const c=px*px+py*py-radius*radius,d=b*b-4*a*c;if(d>=-1e-8){const root=Math.sqrt(Math.max(0,d));samples.push((-b-root)/(2*a),(-b+root)/(2*a));}}
+  for(const t of samples){
+   if(t<0||t>1)continue;const p={x:e.a.x+t*dx,y:e.a.y+t*dy},d=distance(p,site);
+   if(d<250-1e-7||d>300+1e-7||!canStand(p.x,p.y))continue;
+   const u=e.roadA,v=e.roadB,vx=v.x-u.x,vy=v.y-u.y,f=Math.max(0,Math.min(1,((p.x-u.x)*vx+(p.y-u.y)*vy)/(vx*vx+vy*vy)));
+   if(distance(p,{x:u.x+f*vx,y:u.y+f*vy})>e.w/2-.32+1e-8)continue;
+   const key=`${p.x.toFixed(6)},${p.y.toFixed(6)}`;if(seen.has(key))continue;seen.add(key);candidates.push({...p,d,angle:Math.atan2(p.y-site.y,p.x-site.x)});
+  }
+ }
+ const entries=[],angleGap=(a,b)=>Math.abs(Math.atan2(Math.sin(a-b),Math.cos(a-b)));
+ for(let i=0;i<count;i++){
+  const angle=Math.PI/2+i*2*Math.PI/count,available=candidates.filter(p=>entries.every(q=>distance(p,q)>1&&angleGap(p.angle,q.angle)>.01));
+  available.sort((a,b)=>angleGap(a.angle,angle)-angleGap(b.angle,angle)||Math.abs(a.d-275)-Math.abs(b.d-275)||a.x-b.x||a.y-b.y);
+  if(!available.length)throw new Error('找不到分散且可通行的消防車進場道路');entries.push(available[0]);
+ }
+ return entries;
+}
 // Test the entire swept circle, not spaced samples that could skip narrow walls.
 function blockedSegment(a,b,{p},radius){
  if(circleIntersectsPoly(a.x,a.y,radius,p)||circleIntersectsPoly(b.x,b.y,radius,p))return true;

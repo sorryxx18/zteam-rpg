@@ -71,7 +71,7 @@ test('model readiness behavioral probe refuses incomplete construction and check
 });
 
 test('synthetic simulation spends the entire 180s, walks at most 10m/s and constructs while locked',()=>{
- const geometry={fire:{n:'synthetic',addr:'synthetic',x:0,y:0},water:[{n:'synthetic a',k:'hydrant_above',x:60,y:0},{n:'synthetic b',k:'hydrant_under',x:100,y:0}],stations:[{x:10000,y:0},{x:10000,y:0}],roads:[{p:[0,0,10000,0]}],buildings:[]};
+ const geometry={fire:{n:'synthetic',addr:'synthetic',x:0,y:0},water:[{n:'synthetic a',k:'hydrant_above',x:60,y:0},{n:'synthetic b',k:'hydrant_under',x:100,y:0}],stations:[{x:10000,y:0},{x:10000,y:0}],roads:[{p:[0,0,10000,0],w:8},{p:[0,0,0,400],w:8},{p:[0,0,-400,0],w:8}],buildings:[]};
  const nav=balance.createNavigator(geometry);assert.equal(nav.clear({x:0,y:0},{x:.01,y:0}),true);
  const row=balance.simulateSample(geometry,{sample:1,station:'synthetic',support:false,siteIndex:0});
  assert.equal(row.simulatedSeconds,180);assert.equal(row.captured,2);assert.equal(row.totalHoses,8);

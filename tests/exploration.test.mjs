@@ -27,7 +27,9 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   box.requestAnimationFrame=f=>frames.push(t=>{now=t+offset;f(now);});
   box.performance={now:()=>now};
   Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'));
-  const realCreateRace=box.createRace;box.createRace=options=>{raceInputs.push(options);return realCreateRace(options);};
+  // One-line synthetic road fixtures exercise legacy mechanics, not perimeter geography.
+  // Real-data integration below uses the app's unmodified perimeter configuration.
+  const realCreateRace=box.createRace;box.createRace=options=>{raceInputs.push(options);return realCreateRace(realData?options:{...options,config:{...options.config,npcSpawnMode:'nearest-station'}});};
   const rawFetch=box.fetch;
   const home=base.stations.find(s=>s.name.includes('莊敬'));
   const fixtureSite={n:'測試場所',addr:'測試路1號',use:'測試用途',st:home.name,x:home.x-30,y:home.y};
@@ -81,7 +83,7 @@ test('B2 真模型施工首幀鎖住、取消原地不重啟，離開3m再回來
 test('B2 三難度真正傳模型並對齊台數與非瞬插文案',async()=>{
  for(const [difficulty,count] of [['easy',2],['normal',3],['hard',4]]){const h=await harness({autoIntro:false});h.elements.get('start-difficulty').value=difficulty;await h.click('start-game');assert.equal(h.raceInputs[0].config.difficulty,difficulty);assert.match(h.elements.get('mission-rules').textContent,new RegExp(`${count}台`));assert.match(h.html,new RegExp(`value="${difficulty}"[^>]*>[^<]*${count}台`));assert.doesNotMatch(h.html,/3m 內自動插旗/);await h.skipPrelude();h.advance(2000);const s=h.window.__game.getState().race;assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);}
 });
-test('B2 真地格按難度載足近站走廊並pin住，hard第四車出生使用完整原道路投影',async()=>{
+test('v3 真地格按難度保留原走廊與pin，所有車改在250～300m真道路進場',async()=>{
  const h=await harness({realData:true,autoIntro:false});
  const base=JSON.parse(await readFile(new URL('data/base.json',root),'utf8'));
  const {buildRoadGraph,shortestRoute}=await import('../race.mjs');
@@ -108,7 +110,7 @@ test('B2 真地格按難度載足近站走廊並pin住，hard第四車出生使�
   assert.equal(s.race.status,'idle');assert.equal(s.race.remaining,180,'loading must not start round clock');
   await h.skipPrelude();h.advance(h.box.performance.now()+2000);
   const playing=h.window.__game.getState();assert.equal(playing.phase,'playing');assert.equal(playing.race.remaining,180);assert.equal(playing.race.npcs.length,count);
-  for(let i=0;i<count;i++){const projected=shortestRoute(graph,nearest[i],nearest[i]);assert.ok(projected);const npc=playing.race.npcs[i],expected=projected.points[0];assert.ok(Math.hypot(npc.x-expected.x,npc.y-expected.y)<1e-8,`${difficulty} ${nearest[i].name}: original graph spawn projection`);}
+  for(let i=0;i<count;i++){const npc=playing.race.npcs[i],projected=shortestRoute(graph,npc,npc),d=Math.hypot(npc.x-site.x,npc.y-site.y);assert.ok(projected);assert.ok(Math.hypot(npc.x-projected.points[0].x,npc.y-projected.points[0].y)<1e-7,'on unchanged original road');assert.ok(d>=250-1e-7&&d<=300+1e-7);assert.ok(input.canStand(npc.x,npc.y));assert.equal(npc.active,false);for(const other of playing.race.npcs.slice(0,i))assert.ok(Math.hypot(npc.x-other.x,npc.y-other.y)>1); }
  }
 });
 test('B2 NPC目標閃紅框只標未佔目標且mini同提示',async()=>{
@@ -144,7 +146,7 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,5);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3a')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3b')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

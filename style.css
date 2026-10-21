@@ -58,3 +58,4 @@ footer{flex:0 0 auto;justify-content:center;padding:5px 6px;white-space:nowrap}f
 .race-hud{left:12px;right:auto;top:8px;width:76px;height:54px;padding:4px;gap:0}
 .race-hud strong{font-size:21px;line-height:25px}
 .tools{top:48px;right:12px}
+.copyright{margin-left:10px;opacity:.75}

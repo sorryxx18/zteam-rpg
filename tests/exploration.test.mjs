@@ -258,7 +258,7 @@ test('只有本機啟用時持續明示本機測試×5，提示逾時仍保留�
     h.advance(2000);assert.equal(text().includes('本機測試 ×5'),enabled);
     h.timers.at(-1)();assert.equal(text(),enabled?'本機測試 ×5':'');
     h.advance(enabled?62000:302000);assert.equal(text().includes('本機測試 ×5'),enabled);
-    assert.equal(h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,''),'僅供遊戲，非搶救圖資・© OpenStreetMap');
+    assert.equal(h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,''),'僅供遊戲，非搶救圖資・© OpenStreetMap© 2026 Leif Huang. All rights reserved.');
   }
 });
 test('出勤卡與教學後顯示兩秒地址鏡頭，之後才開始完整五分鐘真時間',async()=>{
@@ -490,7 +490,7 @@ test('頂部只有設定入口，音樂靜音收進設定且無曲目選單或�
   assert.match(settings,/id="music-toggle"/);assert.match(settings,/id="music-settings-close"/);
   assert.doesNotMatch(h.html,/id="(?:music-track|home)"/);
   const footer=h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,'');
-  assert.equal(footer,'僅供遊戲，非搶救圖資・© OpenStreetMap');
+  assert.equal(footer,'僅供遊戲，非搶救圖資・© OpenStreetMap© 2026 Leif Huang. All rights reserved.');
   const readme=await readFile(new URL('README.md',root),'utf8');assert.doesNotMatch(readme,/m\/s|1\.8|身高|非實測|實地測量|部署/);
   const css=await readFile(new URL('style.css',root),'utf8');assert.match(css,/\.topbar\{[^}]*height:52px/);assert.match(css,/h1\{[^}]*white-space:nowrap/);
 });

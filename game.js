@@ -1,8 +1,8 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6b1p1';
-import {createMusicPlayer} from './music.mjs?v=6b1p1';
-import {RULES,createRace} from './race.mjs?v=6b1p1';
-import {localTestRate} from './qa-clock.mjs?v=6b1p1';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6b1p1';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6b2';
+import {createMusicPlayer} from './music.mjs?v=6b2';
+import {RULES,createRace} from './race.mjs?v=6b2';
+import {localTestRate} from './qa-clock.mjs?v=6b2';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6b2';
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
@@ -85,7 +85,7 @@ async function goStation(name){
   // Pin the resolved fire surroundings and road corridors; retain the real geometry for NPC routing.
   const pinRect=(l,b,r,t)=>{for(const key of available){const [a,c]=key.split('_').map(Number);if((a+1)*base.cs>=l&&a*base.cs<=r&&(c+1)*base.cs>=b&&c*base.cs<=t)pinnedCells.add(key);}};
   pinRect(introSite.x-500,introSite.y-500,introSite.x+500,introSite.y+500);
-  const nearest=[...base.stations].sort((a,b)=>Math.hypot(a.x-introSite.x,a.y-introSite.y)-Math.hypot(b.x-introSite.x,b.y-introSite.y)).slice(0,2);
+  const nearest=[...base.stations].sort((a,b)=>Math.hypot(a.x-introSite.x,a.y-introSite.y)-Math.hypot(b.x-introSite.x,b.y-introSite.y)).slice(0,difficulty==='hard'?3:2);
   for(const s of nearest){const d=Math.hypot(s.x-introSite.x,s.y-introSite.y),steps=Math.max(1,Math.ceil(d/(base.cs/2)));for(let i=0;i<=steps;i++){const px=introSite.x+(s.x-introSite.x)*i/steps,py=introSite.y+(s.y-introSite.y)*i/steps;pinRect(px-base.cs,py-base.cs,px+base.cs,py+base.cs);}}
   await Promise.all([...pinnedCells].map(loadCell));if(token!==arrival)return;
   if(!cache.has(cellKey(introSite.x,introSite.y))||[...pinnedCells].some(k=>!cache.has(k)))throw Error('本局道路讀取失敗');
@@ -93,7 +93,8 @@ async function goStation(name){
   const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,300).map(async key=>{const r=await fetch(`./data/w/${key}.json`);if(!r.ok)throw Error('水源格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
   const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,20);
   if(!objectives.length)throw Error('火場300m內沒有可用水源，請重試其他題目');
-  race=createRace({sites:[introSite],water:objectives.map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:300}});
+  race=createRace({sites:[introSite],water:objectives.map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:300,difficulty}});
+  $('mission-rules').textContent=`任務5分鐘，靠近水源3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${{easy:1,normal:2,hard:3}[difficulty]}台，20秒後出動。`;
   $('mission-support').hidden=!['復興分隊','永吉分隊'].includes(station);$('mission-support').textContent='周邊支援';
   x=introSite.x;y=introSite.y;direction='down';nearbyKey=cellKey(x,y);phase='mission';missionAt=performance.now();clearInput();$('start-screen').close();$('result-dialog').close();$('intro-address').textContent=`${introSite.n}｜${introSite.addr}`;$('intro').hidden=true;$('mission-detail').textContent=`${introSite.n}｜${introSite.addr}｜${introSite.use||introSite.u||'用途未提供'}`;$('mission-card').hidden=false;message('火警出題！記住地址，搶下周邊水源。',2000);canvas.focus({preventScroll:true});
   }catch(error){if(token!==arrival)return;phase='select';ready=false;race=null;introSite=null;clearInput();$('result-dialog').close();$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('intro').hidden=true;$('start-status').textContent=`${error.message}。請按開始重試。`;$('start-screen').showModal();message('本題暫時無法出勤，請重試。');}
@@ -203,6 +204,7 @@ function distanceScale(sceneZoom,cssWidth,backingWidth){
   return {metres,pixels:metres*ppm};
 }
 function renderScene(){
+  updateConstructionUI();
   if(!base){ctx.fillStyle='#9ca77b';ctx.fillRect(0,0,width,height);return;}
   const sceneZoom=phase==='intro'?zoom*(.2+.8*Math.min(1,(performance.now()-introAt)/2000)):zoom;
   drawWorld(ctx,sceneZoom,width,height);
@@ -218,6 +220,8 @@ function renderScene(){
 }
 function update(dt){
   movementSpeed=0;
+  // Check the model BEFORE world movement; ticking and drawing keep running.
+  if(race?.getState().construction){clearInput();return;}
   if(inputBlocked()){clearInput();return;}
   const pressed=k=>keys.has(k);
   const dx=joystick.active?joystick.x:Number(pressed('ArrowRight')||pressed('d'))-Number(pressed('ArrowLeft')||pressed('a'));
@@ -266,6 +270,7 @@ function drawRace(c,scale,w,h,isMini=false){
   // Decode ids are cell-row keys; race ids are numeric and must never be used
   // to match ambient points (names and coordinates can legitimately repeat).
   const targets=new Map((snapshot?.water||[]).map(s=>[s.sourceId,s]));
+  const npcTargets=new Set((snapshot?.npcs||[]).filter(n=>n.active&&n.target!==null&&!(n.cooldownRemaining>0)).map(n=>n.target));
   const objectiveIds=new Set(selectObjectives(water,introSite,300,20).map(s=>s.id));
   const sources=water.map(s=>({source:targets.get(s.id)||s,target:objectiveIds.has(s.id)}));
   // Ambient sources first, so a dim colocated point cannot cover a target flag.
@@ -274,6 +279,9 @@ function drawRace(c,scale,w,h,isMini=false){
     const a=px(source.x),b=py(source.y);if(a<-30||a>w+30||b<-30||b>h+30)continue;
     if(isMini){c.save();c.globalAlpha=target?1:.25;c.fillStyle=source.owner==='player'?'#238a50':source.owner?'#69727a':target?(Math.floor(performance.now()/500)%2?'#ffe64d':'#fff4a3'):'#d3ddda';c.fillRect(a-1,b-1,3,3);c.restore();}
     else waterMark(c,source,a,b,ratio,false,null,target,Math.hypot(source.x-x,source.y-y)<=30);
+    if(target&&!source.owner&&npcTargets.has(source.id)&&Math.floor(performance.now()/500)%2===0){
+      const radius=isMini?4:16*ratio;c.save();c.strokeStyle='#e13232';c.lineWidth=isMini?1:2*ratio;c.strokeRect(a-radius,b-radius,radius*2,radius*2);c.restore();
+    }
   }
   for(const npc of snapshot?.npcs||[]){if(!npc.active)continue;const a=px(npc.x),b=py(npc.y);if(isMini){c.fillStyle='#e13232';c.beginPath();c.arc(a,b,3,0,Math.PI*2);c.fill();continue;}c.save();c.translate(a,b);c.rotate(Math.atan2(-npc.direction.y,npc.direction.x));c.scale(ratio,ratio);
     // Original pixel truck: cab faces local +x; roof ladder and two blue lights.
@@ -293,8 +301,21 @@ function finishRound(){
   phase='result';ready=false;clearInput();$('overview-dialog').close();$('music-settings-dialog').close();$('intro').hidden=true;musicAction('setState','result');const s=race.getState();
   $('result-score').textContent=`${s.captured} / ${s.total}`;$('result-address').textContent=`${s.site.n}｜${s.site.addr}`;
   $('result-list').textContent=s.water.map((a,i)=>`${i+1}. ${a.n}（${{hydrant:'消防栓',pond:'水池',river:'河川取水點'}[a.k]||a.k}）— ${a.owner==='player'?'犀牛綠旗・已佔領':a.owner?'灰旗・消防車已搶走':'閃黃・未找到'}`).join('\n');
-  $('result-dialog').showModal();drawResultMap();
+  updateConstructionUI();$('result-dialog').showModal();drawResultMap();
 }
+function updateConstructionUI(){
+  const s=race?.getState(),c=phase==='playing'&&s?.status==='playing'?s.construction:null;
+  const panel=$('construction-panel'),progress=$('construction-progress');
+  panel.hidden=!c;progress.max=c?.duration||1;progress.value=c?.elapsed||0;
+  $('construction-detail').textContent=c?`水帶 ${c.hoses}條 · ${c.elapsed.toFixed(1)} / ${c.duration.toFixed(1)}秒`:'';
+  $('construction-status').textContent=c?(c.contested?'搶線中！':'佈線中・暫時不能移動'):'';
+  $('total-hoses').textContent=`水帶 ${s?.totalHoses||0}條`;
+  if(c)clearInput();
+}
+$('construction-cancel').addEventListener('click',()=>{
+  clearInput();if(phase==='playing'&&race?.getState().construction)race.cancelConstruction();
+  updateConstructionUI();if(ready&&!inputModalOpen())canvas.focus({preventScroll:true});
+});
 function tickRace(dt){
   if(phase==='mission'&&performance.now()-missionAt>=3000)finishMission();
   if(phase==='intro'&&performance.now()-introAt>=2000){
@@ -340,7 +361,7 @@ run.addEventListener('contextmenu',e=>e.preventDefault());
 
 $('zoom-in').addEventListener('click',()=>{viewWidthMeters=Math.max(100,viewWidthMeters-25);zoom=width/viewWidthMeters;canvas.focus({preventScroll:true});});$('zoom-out').addEventListener('click',()=>{viewWidthMeters=Math.min(250,viewWidthMeters+25);zoom=width/viewWidthMeters;canvas.focus({preventScroll:true});});
 for(const b of document.querySelectorAll('[data-start-character]'))b.addEventListener('click',()=>{character=b.dataset.startCharacter;document.querySelectorAll('[data-start-character]').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));});
-$('settings').addEventListener('click',()=>{++arrival;ready=false;phase='select';race=null;introSite=null;$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('intro').hidden=true;clearInput();$('start-game').disabled=!bootstrapped;$('start-screen').showModal();$('start-game').focus();});
+$('settings').addEventListener('click',()=>{++arrival;ready=false;phase='select';race=null;introSite=null;$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('intro').hidden=true;clearInput();updateConstructionUI();$('start-game').disabled=!bootstrapped;$('start-screen').showModal();$('start-game').focus();});
 $('start-screen').addEventListener('cancel',e=>e.preventDefault());
 $('start-game').addEventListener('click',async()=>{if(phase!=='select')return;if(!bootstrapped){await boot();return;}difficulty=['easy','normal','hard'].includes($('start-difficulty').value)?$('start-difficulty').value:'normal';tense=false;playMusic();$('start-game').disabled=true;await goStation($('start-station').value);$('start-game').disabled=false;});
 $('next-round').addEventListener('click',async()=>{if(phase!=='result')return;tense=false;phase='loading';playMusic();$('next-round').disabled=true;await goStation(station);$('next-round').disabled=false;});

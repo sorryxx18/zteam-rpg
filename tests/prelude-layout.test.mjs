@@ -39,7 +39,7 @@ test('任務與教學卡具有高於 intro 的置中、可捲動安全容器，h
   assert.equal(property(button, 'flex-shrink'), '0');
 });
 
-test('CSS 與遊戲入口使用同一個 v2 第一批快取版號', () => {
-  assert.match(html, /href="\.\/style\.css\?v=6b1p1"/);
-  assert.match(html, /src="\.\/game\.js\?v=6b1p1"/);
+test('CSS 與遊戲入口使用同一個 v2 第二批快取版號', () => {
+  assert.match(html, /href="\.\/style\.css\?v=6b2"/);
+  assert.match(html, /src="\.\/game\.js\?v=6b2"/);
 });

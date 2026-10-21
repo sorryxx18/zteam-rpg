@@ -7,7 +7,7 @@ import {createMusicPlayer} from '../music.mjs';
 import {createRace as createRaceForKinds} from '../race.mjs';
 import {localTestRate} from '../qa-clock.mjs';
 const root=new URL('../',import.meta.url);
-async function harness({location=new URL('https://public.example/'),musicPlayer=null,rejectMusic=false,musicStateError=false,wall=false,viewport=[780,1000],autoIntro=true,shortRoads=false,widePreload=false,realData=false,initialSite=0,bootFailure=null}={}){
+async function harness({location=new URL('https://public.example/'),musicPlayer=null,rejectMusic=false,musicStateError=false,wall=false,viewport=[780,1000],autoIntro=true,shortRoads=false,widePreload=false,realData=false,initialSite=0,bootFailure=null,movementOnly=false}={}){
   const html=await readFile(new URL('index.html',root),'utf8');
   const source=await readFile(new URL('game.js',root),'utf8');
   const storage=new Map();
@@ -38,7 +38,8 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   // resolution does not mistake the spawn collision wall 30m away for the fire.
   if(wall)box.fetch=async url=>{const response=await mapFetch(url);if(!url.includes('/c/'))return response;const data=await response.json();data.builds.push({p:[home.x-31,home.y-1,home.x-29,home.y-1,home.x-29,home.y+1,home.x-31,home.y+1]});return {ok:true,json:async()=>data};};
   const fixtureFetch=box.fetch;
-  const waterFixture=[{k:'hydrant',n:'近處消防栓',x:home.x+1,y:home.y},{k:'tank',n:'遠處水池',x:home.x+250,y:home.y},{k:'natural',n:'河川取水點',x:home.x+150,y:home.y+150}];
+  // Movement-only cases must not accidentally enter the new construction lock.
+  const waterFixture=[{k:'hydrant',n:'近處消防栓',x:home.x+1,y:home.y+(movementOnly?20:0)},{k:'tank',n:'遠處水池',x:home.x+250,y:home.y},{k:'natural',n:'河川取水點',x:home.x+150,y:home.y+150}];
   const waterKey=`${Math.floor(home.x/500)}_${Math.floor(home.y/500)}`;
   box.fetch=async url=>{if(url.endsWith('sites.json')){calls.push(url);return {ok:true,json:async()=>[fixtureSite,{...fixtureSite,n:'第二場所',x:home.x+10}]};}if(url.endsWith('/w/index.json')){calls.push(url);return {ok:true,json:async()=>[waterKey]};}if(url.includes('/w/')){calls.push(url);return {ok:true,json:async()=>waterFixture.map(w=>[w.x,w.y,w.k])};}if(url.endsWith('water.json')){calls.push(url);return {ok:true,json:async()=>waterFixture};}return fixtureFetch(url);};
   box.Math=Object.create(Math);box.Math.random=()=>initialSite/3;
@@ -47,12 +48,75 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   box.createMusicPlayer=()=>{let muted=false,playing=false;return {play:id=>{calls.push('play:'+id);playing=!rejectMusic;return rejectMusic?Promise.reject(Error('gesture denied')):Promise.resolve();},setState:id=>calls.push('state:'+id),cue:id=>calls.push('cue:'+id),pause(){playing=false;},setMuted(v){muted=v;},getState:()=>({muted,playing,track:'explore',error:musicStateError?'resume denied':null})};};
   if(musicPlayer)box.createMusicPlayer=()=>musicPlayer;
   if(bootFailure){const fetch=box.fetch;let once=true;box.fetch=async url=>{if(once&&url.endsWith(bootFailure)){once=false;throw Error('測試boot讀取失敗');}return fetch(url);};}
-  vm.runInNewContext(source.replace(/^import .*?;\n/gm,''),box);
+  vm.runInNewContext(source.replace(/^import .*?;\n/gm,'')+'\nthis.testPinnedCells=()=>[...pinnedCells];',box);
   const settle=async()=>{for(let i=0;i<20;i++)await new Promise(r=>setImmediate(r));};await settle();
   const skipPrelude=async()=>{if(window.__game.getState().phase==='mission')await click('mission-skip');for(let i=0;i<3&&window.__game.getState().phase==='tutorial';i++)await click('tutorial-next');};
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('B2 施工先於移動鎖定並清雙指，計時持續；原生取消清進度不殘留輸入',async()=>{
+ const h=await harness();let construction={waterId:0,hoses:7,duration:3.5,elapsed:.5,contested:true},ticks=0,cancelled=0;
+ const create=h.box.createRace;h.box.createRace=options=>{const model=create(options);return {...model,getState:()=>({...model.getState(),construction,totalHoses:4}),tick:(...args)=>{ticks++;return model.tick(...args);},cancelConstruction:()=>{cancelled++;construction=null;}};};
+ await h.click('start-game');const get=()=>h.window.__game.getState(),start=get().x;
+ const stick=h.elements.get('joystick');stick.getBoundingClientRect=()=>({left:40,top:200,width:128,height:128});
+ stick.listeners.pointerdown({pointerId:1,clientX:148,clientY:264,preventDefault(){}});h.elements.get('run').listeners.pointerdown({pointerId:2,preventDefault(){}});
+ h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});const before=ticks;h.advance(100);assert.equal(get().x,start,'施工查詢必須先於stepMove');assert.ok(ticks>before);assert.equal(get().runHeld,false);assert.equal(get().joystick.active,false);
+ const panel=h.elements.get('construction-panel'),progress=h.elements.get('construction-progress');assert.ok(panel);assert.equal(panel.hidden,false);assert.equal(progress.max,3.5);assert.equal(progress.value,.5);assert.match(h.elements.get('construction-detail').textContent,/7.*0\.5.*3\.5/);assert.match(h.elements.get('construction-status').textContent,/搶線中/);assert.match(h.elements.get('total-hoses').textContent,/4/);
+ await h.click('construction-cancel');assert.equal(cancelled,1);assert.equal(panel.hidden,true);assert.equal(progress.value,0);assert.equal(h.elements.get('construction-detail').textContent,'');h.advance(200);assert.equal(get().x,start);
+ h.events.keydown({target:{closest:()=>null},key:'a',preventDefault(){}});h.advance(300);assert.ok(get().x<start,'取消後可新輸入離開水源');
+ construction={waterId:0,hoses:2,duration:1,elapsed:.25,contested:false};h.advance(400);assert.equal(panel.hidden,false);construction=null;h.advance(500);assert.equal(panel.hidden,true);assert.equal(progress.value,0,'被搶或完工不保留進度');
+ construction={waterId:0,hoses:2,duration:1,elapsed:.25,contested:false};h.advance(600);await h.click('settings');assert.equal(panel.hidden,true,'重選即清');
+});
+test('B2 真模型施工首幀鎖住、取消原地不重啟，離開3m再回來才重建並累計成功水帶',async()=>{
+ const h=await harness();await h.click('start-game');const get=()=>h.window.__game.getState(),start=get().x;let time=0;
+ assert.ok(get().race.construction);assert.equal(get().race.captured,0);assert.equal(h.elements.get('construction-panel').hidden,false);
+ h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});h.advance(time+=100);assert.equal(get().x,start);assert.equal(get().moving,false);
+ await h.click('construction-cancel');h.advance(time+=100);h.advance(time+=100);assert.equal(get().race.construction,null);assert.equal(get().race.totalHoses,0);
+ h.events.keydown({target:{closest:()=>null},key:'a',preventDefault(){}});for(let i=0;i<9;i++)h.advance(time+=100);h.events.keyup({key:'a'});assert.ok(start-get().x>3);
+ h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});for(let i=0;i<9&&!get().race.construction;i++)h.advance(time+=100);
+ assert.ok(get().race.construction);const hoses=get().race.construction.hoses;for(let i=0;i<65&&get().race.construction;i++)h.advance(time+=100);
+ assert.equal(get().race.captured,1);assert.equal(get().race.totalHoses,hoses);assert.equal(h.elements.get('construction-panel').hidden,true);assert.equal(h.elements.get('construction-progress').value,0);assert.equal(get().moving,false);
+ h.advance(300000);assert.equal(get().phase,'result');assert.equal(h.elements.get('construction-panel').hidden,true);
+});
+test('B2 三難度真正傳模型並對齊台數與非瞬插文案',async()=>{
+ for(const [difficulty,count] of [['easy',1],['normal',2],['hard',3]]){const h=await harness({autoIntro:false});h.elements.get('start-difficulty').value=difficulty;await h.click('start-game');assert.equal(h.raceInputs[0].config.difficulty,difficulty);assert.match(h.elements.get('mission-rules').textContent,new RegExp(`${count}台`));assert.match(h.html,new RegExp(`value="${difficulty}"[^>]*>[^<]*${count}台`));assert.doesNotMatch(h.html,/3m 內自動插旗/);await h.skipPrelude();h.advance(2000);const s=h.window.__game.getState().race;assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);}
+});
+test('B2 真地格按難度載足近站走廊並pin住，hard第三車出生使用完整原道路投影',async()=>{
+ const h=await harness({realData:true,autoIntro:false});
+ const base=JSON.parse(await readFile(new URL('data/base.json',root),'utf8'));
+ const {buildRoadGraph,shortestRoute}=await import('../race.mjs');
+ for(const [difficulty,name,count] of [['hard','復興分隊',3],['normal','復興分隊',2],['easy','舊莊分隊',1],['hard','舊莊分隊',3]]){
+  if(h.raceInputs.length)await h.click('settings');
+  h.elements.get('start-difficulty').value=difficulty;h.elements.get('start-station').value=name;await h.click('start-game');
+  const s=h.window.__game.getState(),input=h.raceInputs.at(-1);assert.equal(s.phase,'mission',`${difficulty} ${name}`);
+  const site=input.sites[0],nearest=[...base.stations].sort((a,b)=>Math.hypot(a.x-site.x,a.y-site.y)-Math.hypot(b.x-site.x,b.y-site.y)).slice(0,count);
+  const required=new Set(),include=(x,y,radius)=>{
+   for(const key of base.cells){const [a,b]=key.split('_').map(Number);if((a+1)*base.cs>=x-radius&&a*base.cs<=x+radius&&(b+1)*base.cs>=y-radius&&b*base.cs<=y+radius)required.add(key);}
+  };
+  include(site.x,site.y,500);
+  for(const station of nearest){const steps=Math.max(1,Math.ceil(Math.hypot(station.x-site.x,station.y-site.y)/(base.cs/2)));for(let i=0;i<=steps;i++)include(site.x+(station.x-site.x)*i/steps,site.y+(station.y-site.y)*i/steps,base.cs);}
+  const missing=[...required].filter(k=>!s.loadedCells.includes(k)),unpinned=[...required].filter(k=>!h.box.testPinnedCells().includes(k));
+  assert.deepEqual(missing,[],`${difficulty} ${name}: required original corridor cells missing`);
+  assert.deepEqual(unpinned,[],`${difficulty} ${name}: corridors must survive LRU`);
+  // Use every loaded original cell for the graph oracle: extra easy/normal
+  // preload buildings can legitimately block an edge from the minimum corridor.
+  const cells=await Promise.all(Array.from(s.loadedCells,async k=>JSON.parse(await readFile(new URL(`data/c/${k}.json`,root),'utf8'))));
+  const graph=buildRoadGraph(cells.flatMap(c=>c.roads||[]),{buildings:cells.flatMap(c=>c.builds||[])});
+  const loadedGraph=buildRoadGraph(input.roads,{buildings:input.buildings});
+  const edgeKey=e=>[e.a.id,e.b.id].sort().join('|'),loadedEdges=new Set(loadedGraph.edges.map(edgeKey));
+  assert.ok(graph.edges.length>0);for(const edge of graph.edges)assert.ok(loadedEdges.has(edgeKey(edge)),`original corridor edge ${edgeKey(edge)}`);
+  assert.equal(s.race.status,'idle');assert.equal(s.race.remaining,300,'loading must not start round clock');
+  await h.skipPrelude();h.advance(h.box.performance.now()+2000);
+  const playing=h.window.__game.getState();assert.equal(playing.phase,'playing');assert.equal(playing.race.remaining,300);assert.equal(playing.race.npcs.length,count);
+  for(let i=0;i<count;i++){const projected=shortestRoute(graph,nearest[i],nearest[i]);assert.ok(projected);const npc=playing.race.npcs[i],expected=projected.points[0];assert.ok(Math.hypot(npc.x-expected.x,npc.y-expected.y)<1e-8,`${difficulty} ${nearest[i].name}: original graph spawn projection`);}
+ }
+});
+test('B2 NPC目標閃紅框只標未佔目標且mini同提示',async()=>{
+ const h=await harness(),create=h.box.createRace;let active=true,owner=null;
+ h.box.createRace=options=>{const model=create(options);return {...model,getState:()=>{const s=model.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?owner:w.owner})),npcs:[{id:'npc1',active,target:0,x:s.spawn?.x||0,y:s.spawn?.y||0,direction:{x:1,y:0}}]};}};};
+ await h.click('start-game');const draw=mini=>{h.drawCalls.length=0;h.box.drawRace(h.elements.get('game').getContext('2d'),1,390,422,mini);return h.drawCalls.filter(c=>c[0]==='strokeRect');};
+ assert.ok(draw(false).length>0);assert.ok(draw(true).length>0);h.box.performance.now=()=>600;assert.equal(draw(false).length,0,'紅框閃爍');h.box.performance.now=()=>0;active=false;assert.equal(draw(false).length,0);active=true;owner='player';assert.equal(draw(false).length,0);
+});
 test('v2 任務與教學隱藏舊intro，只有鏡頭前奏顯示且教學不承諾瞬插',async()=>{
  const h=await harness({autoIntro:false});await h.click('start-game');
  assert.equal(h.elements.get('intro').hidden,true,'任務卡不能被舊intro蓋住');
@@ -78,9 +142,9 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
   await h.click('start-game');assert.equal(h.window.__game.getState().phase,'mission');
  }
 });
-test('v2 頂端模組統一6b1p1快取版本',async()=>{
+test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,5);
- assert.ok(imports.every(path=>path.endsWith('?v=6b1p1')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6b2')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -154,7 +218,7 @@ test('v2 非目標淡畫以穩定cell-row sourceId對照，重名重座標也不
  const h=await harness(),fetch=h.box.fetch,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');
  h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[...Array.from({length:21},()=>[home.x,home.y,'hydrant']),[home.x+400,home.y,'tank']]}:fetch(url);
  await h.click('start-game');const s=h.window.__game.getState(),input=h.raceInputs[0];
- assert.equal(s.race.total,20);assert.equal(s.race.captured,20);assert.equal(s.race.water.length,20);
+ assert.equal(s.race.total,20);assert.equal(s.race.captured,0,'進3m開始施工，不再瞬間佔20點');assert.ok(s.race.construction);assert.equal(s.race.water.length,20);
  assert.ok(input.water.every(w=>w.sourceId===w.id&&typeof w.id==='string'),'preserve cell-row identity before numeric race id overwrite');
  assert.equal(new Set(s.race.water.map(w=>w.sourceId)).size,20);assert.ok(s.race.water.every(w=>typeof w.id==='number'));
  const marks=[],mark=h.box.waterMark;h.box.waterMark=(...args)=>{marks.push(args);return mark(...args);};h.window.__game.renderScene();
@@ -189,7 +253,7 @@ test('v2 出勤卡三秒與首次三步教學結束之前不啟動計時且鎖�
  h.advance(4999);assert.equal(get().phase,'intro');assert.equal(get().race.status,'idle');
  h.advance(5000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,300);assert.ok(get().race.npcs.every(n=>!n.active));
 });
-test('v2 難度預設普通且保存選角分隊選擇，不冒稱NPC平衡已變更',async()=>{
+test('v2 難度預設普通且保存選角分隊選擇',async()=>{
   const h=await harness();assert.equal(h.window.__game.getState().difficulty,'normal');
   h.elements.get('start-difficulty').value='hard';await h.click('start-game');
   assert.equal(h.window.__game.getState().difficulty,'hard');
@@ -328,7 +392,7 @@ test('真實1m/unit與.32m碰撞不變，走5跑10且實際位移正確',async()
 });
 test('遊戲迴圈十秒走50m跑100m，60/20/10FPS與半推均一致',async()=>{
   for(const fps of [60,20,10])for(const running of [false,true])for(const half of [false,true]){
-    const h=await harness();await h.click('start-game');const get=()=>h.window.__game.getState();
+    const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
     const stick=h.elements.get('joystick');stick.getBoundingClientRect=()=>({left:40,top:200,width:128,height:128});
     stick.listeners.pointerdown({pointerId:1,clientX:half?126:148,clientY:264,preventDefault(){}});
     if(running)h.elements.get('run').listeners.pointerdown({pointerId:2,preventDefault(){}});
@@ -377,7 +441,7 @@ test('兩指任意順序按住跑，跑單按不動、放跑恢復走、放左�
 
 test('cancel/lostcapture/blur/visibility/resize/modal 清除兩指且選單內不能偷跑',async()=>{
   for(const trigger of ['pointercancel','lostpointercapture','blur','visibilitychange','resize','overview-open','settings','music-settings','music-toggle']){
-    const h=await harness();await h.click('start-game');const get=()=>h.window.__game.getState();
+    const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
     const stick=h.elements.get('joystick');stick.getBoundingClientRect=()=>({left:40,top:200,width:128,height:128});
     const send=(id,type,pointerId)=>h.elements.get(id).listeners[type]?.({pointerId,clientX:148,clientY:264,preventDefault(){}});
     send('joystick','pointerdown',1);send('run','pointerdown',2);
@@ -535,7 +599,7 @@ test('整局道路走廊超過25格仍完整保留預載範圍',async()=>{
   for(const key of requested)assert.ok(s.loadedCells.includes(key),key);
 });
 test('佔領提示音、緊張與結果音樂、完整地圖對照與新場所再一題',async()=>{
-  const h=await harness({autoIntro:false});await h.click('start-game');await h.skipPrelude();h.advance(2000);assert.ok(h.calls.includes('cue:capture'));
+  const h=await harness({autoIntro:false});await h.click('start-game');await h.skipPrelude();h.advance(2000);assert.ok(!h.calls.includes('cue:capture'));h.advance(3000);assert.ok(h.calls.includes('cue:capture'));
   h.advance(242000);assert.ok(h.calls.includes('state:tense'));
   assert.ok(h.calls.includes('cue:lost'));assert.ok(h.calls.includes('cue:horn'));
   h.advance(302000);assert.ok(h.calls.includes('state:result'));const old=h.window.__game.getState().race.site;

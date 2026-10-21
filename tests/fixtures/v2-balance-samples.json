@@ -1,0 +1,158 @@
+{
+  "seed": "20261021",
+  "algorithm": "sha256 fixed rank per station; distinct sites; two rounds all nine, third support only",
+  "sourceSitesSha256": "c0df0a7544e8af1be2b314f5d4ad2632d6f696721735e48213a62de5f46a20dd",
+  "counts": {
+    "金華分隊": 221,
+    "復興分隊": 830,
+    "安和分隊": 458,
+    "永吉分隊": 733,
+    "信義分隊": 306,
+    "莊敬分隊": 81,
+    "南港分隊": 70,
+    "舊莊分隊": 40,
+    "成德分隊": 41
+  },
+  "samples": [
+    {
+      "sample": 1,
+      "station": "金華分隊",
+      "siteIndex": 172,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 2,
+      "station": "復興分隊",
+      "siteIndex": 1132,
+      "support": true,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 3,
+      "station": "安和分隊",
+      "siteIndex": 90,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 4,
+      "station": "永吉分隊",
+      "siteIndex": 620,
+      "support": true,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 5,
+      "station": "信義分隊",
+      "siteIndex": 695,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 6,
+      "station": "莊敬分隊",
+      "siteIndex": 945,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 7,
+      "station": "南港分隊",
+      "siteIndex": 628,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 8,
+      "station": "舊莊分隊",
+      "siteIndex": 352,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 9,
+      "station": "成德分隊",
+      "siteIndex": 214,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 10,
+      "station": "金華分隊",
+      "siteIndex": 904,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 11,
+      "station": "復興分隊",
+      "siteIndex": 465,
+      "support": true,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 12,
+      "station": "安和分隊",
+      "siteIndex": 782,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 13,
+      "station": "永吉分隊",
+      "siteIndex": 985,
+      "support": true,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 14,
+      "station": "信義分隊",
+      "siteIndex": 671,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 15,
+      "station": "莊敬分隊",
+      "siteIndex": 889,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 16,
+      "station": "南港分隊",
+      "siteIndex": 793,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 17,
+      "station": "舊莊分隊",
+      "siteIndex": 31,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 18,
+      "station": "成德分隊",
+      "siteIndex": 178,
+      "support": false,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 19,
+      "station": "復興分隊",
+      "siteIndex": 806,
+      "support": true,
+      "difficulty": "normal"
+    },
+    {
+      "sample": 20,
+      "station": "永吉分隊",
+      "siteIndex": 1153,
+      "support": true,
+      "difficulty": "normal"
+    }
+  ]
+}

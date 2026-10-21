@@ -84,8 +84,7 @@ test('fixed public sample preserves 20 distinct sites, nine teams and support; a
  assert.equal(new Set(fixture.samples.map(s=>s.station)).size,9);
  assert.ok(fixture.samples.some(s=>s.support));assert.ok(fixture.samples.every(s=>s.difficulty==='normal'));
  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(new URL('data/sites.json',root))).digest('hex'),fixture.sourceSitesSha256);
- const inputs=balance.loadInputs();const rows=fixture.samples.map(s=>({...s,total:balance.prepareSample(inputs,s).water.length}));
- assert.equal(rows[10].total,14);assert.ok(rows.every(s=>s.total>=10&&s.total<=15));
+ const inputs=balance.loadInputs();for(const sample of fixture.samples){const g=balance.prepareSample(inputs,sample);assert.ok(g.water.every(w=>Math.hypot(w.x-g.fire.x,w.y-g.fire.y)<=500));const r=createRace({sites:[g.fire],water:g.water,config:{waves:true,targetRadius:500,npcCount:0}}),s=r.start(0);assert.equal(s.total,10);assert.ok(s.plannedTotal>=10&&s.plannedTotal<=26);}
 });
 test('fresh-round loaded geometry matches actual game loadNearby, pinned corridors and LRU',async()=>{
  const input=balance.loadInputs(),source=fs.readFileSync(new URL('game.js',root),'utf8');

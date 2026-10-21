@@ -1,7 +1,7 @@
 import {circleIntersectsPoly} from './core.mjs';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
-export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:10,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
+export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
 const freeze = value => {if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
 export function roundStars(captured,total){const ratio=total>0?captured/total:0;return ratio<.3?1:ratio<.6?2:3;}
 export function rememberHighScore(storage,difficulty,score){
@@ -33,7 +33,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
  if(!['nearest-station','perimeter'].includes(rules.npcSpawnMode))throw new Error('消防車出生模式無效');
  if(!['near-site','nearest-station'].includes(rules.spawnMode)||!Number.isInteger(rules.npcCount)||rules.npcCount<0||rules.npcCount>4)throw new Error('規則模式無效');
  const graph=buildRoadGraph(roads,{buildings});let state={status:'idle',difficulty:rules.difficulty,site:null,spawn:null,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:0,water:[],npcs:[]},events=[],started=0,elapsed=0,meta=[];
- let cancelled=new Set(),geometryCache=new WeakMap(),lastPlayer=null;
+ let cancelled=new Set(),geometryCache=new WeakMap(),lastPlayer=null,waves=[],nextWave=1;
  // Private graph geometry only: never cache ownership, reservations or canStand.
  // Each NPC retains at most 20 queries for its exact current position.
  const geometry=(n,w)=>{
@@ -82,13 +82,15 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   if(index===undefined)index=Math.min(sites.length-1,Math.max(0,Math.floor(random()*sites.length)));
   if(!Number.isInteger(index)||!sites[index])throw new Error('場所索引無效');
   const site=sites[index],near=stations.map((s,i)=>({...s,_index:i})).sort((a,b)=>distance(a,site)-distance(b,site));
-  const targets=water.map((w,id)=>({...w,id,owner:null})).filter(w=>distance(w,site)<=rules.targetRadius);if(!targets.length)throw new Error('場所附近沒有水源');
+  const candidates=water.map((w,id)=>({...w,id,owner:null})).filter(w=>distance(w,site)<=rules.targetRadius);
+  if(rules.waves){const sorted=[...candidates].sort((a,b)=>distance(a,site)-distance(b,site)||a.id-b.id),inner=sorted.filter(w=>distance(w,site)<=300).slice(0,10),middle=sorted.filter(w=>distance(w,site)>300&&distance(w,site)<=400).slice(0,8),outer=sorted.filter(w=>distance(w,site)>400&&distance(w,site)<=500).slice(0,8);waves=[inner,middle.slice(0,4),middle.slice(4),outer.slice(0,4),outer.slice(4)];}else waves=[candidates];
+  nextWave=1;const targets=waves[0].map(w=>({...w,openedAt:0}));if(!targets.length)throw new Error('場所附近沒有水源');
   let spawn=null;
   if(rules.spawnMode==='nearest-station'){if(!near.length)throw new Error('沒有可用分隊');const s=near[0];if(canStand(s.x,s.y))spawn={x:s.x,y:s.y};}
   else {for(let i=0;i<72;i++){const angle=i*Math.PI/36,p={x:site.x+Math.cos(angle)*rules.spawnDistance,y:site.y+Math.sin(angle)*rules.spawnDistance};if(canStand(p.x,p.y)){spawn=p;break;}}}
   if(!spawn)throw new Error('找不到可站立的出生位置');
   started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();lastPlayer=null;
-  state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:targets.length,water:targets,npcs:[]};
+  state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:targets.length,plannedTotal:waves.reduce((n,w)=>n+w.length,0),wave:0,water:targets,npcs:[]};
   const entries=rules.npcSpawnMode==='perimeter'?perimeterEntries(graph,site,rules.npcCount,canStand):null;
   for(let i=0;i<rules.npcCount&&(entries||near.length);i++){const s=near[i]??near[0],p=entries?entries[i]:project(graph,s)?.q??s;state.npcs.push({id:`npc${i+1}`,x:p.x,y:p.y,direction:{x:0,y:0},active:false,target:null,route:[],construction:null,cooldownRemaining:0});meta.push({delay:rules.npcDelaySeconds+(!entries&&i>=near.length?rules.npcStaggerSeconds:0),horn:-Infinity});}
   return snapshot();
@@ -116,6 +118,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   let time=begin;
   for(;;){
    if(time>=rules.roundSeconds-1e-9)break;
+   while(nextWave<waves.length&&time>=nextWave*30-1e-9){const at=nextWave*30,added=waves[nextWave].map(w=>({...w,openedAt:at}));state.water.push(...added);state.total=state.water.length;state.wave=nextWave++;event('wave',null,null,{count:added.length,timeSeconds:at});}
    if(state.construction&&state.construction.duration-state.construction.elapsed<=1e-9)claim(state.water.find(w=>w.id===state.construction.waterId),'player',null,time);
    for(const n of state.npcs)if(n.construction&&n.construction.duration-n.construction.elapsed<=1e-9)claim(state.water.find(w=>w.id===n.construction.waterId),n.id,n,time);
    for(let i=0;i<state.npcs.length;i++){const n=state.npcs[i];n.active=time>=meta[i].delay-1e-9;if(!n.active)continue;
@@ -124,6 +127,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
    }
    if(time>=end-1e-10)break;
    let span=Math.min(.1,end-time);
+   if(nextWave<waves.length)span=Math.min(span,nextWave*30-time);
    if(state.construction)span=Math.min(span,state.construction.duration-state.construction.elapsed);
    for(let i=0;i<state.npcs.length;i++){const n=state.npcs[i];if(!n.active){span=Math.min(span,meta[i].delay-time);continue;}if(n.cooldownRemaining>0)span=Math.min(span,n.cooldownRemaining);else if(n.construction)span=Math.min(span,n.construction.duration-n.construction.elapsed);else {const w=state.water.find(w=>w.id===n.target),speed=rules.runSpeed*rules.npcSpeedRatio;if(w&&speed>0)span=Math.min(span,arrivalDistance(n,w)/speed);}}
    if(state.construction)state.construction.elapsed+=span;

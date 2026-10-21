@@ -15,7 +15,7 @@ test('cancel discards progress and blocks same source until leaving 3m; duration
 });
 for(const step of [.1,.25,50])test(`NPC arrival consumes travel before construction, three second cooldown; dt=${step}`,()=>{
  const {at}=setup({x:100,stations:[{x:0,y:0}],config:{npcCount:1},water:[{n:'甲',k:'hydrant_above',x:100,y:0},{n:'乙',k:'hydrant_under',x:200,y:0}]});
- const speed=10*RULES.npcSpeedRatio,arrival=10+97/speed;
+ const speed=10*RULES.npcSpeedRatio,arrival=RULES.npcDelaySeconds+97/speed;
  let t=0;while(t+step<arrival-.125){t+=step;at(t);}let s=at(arrival-.125);assert.ok(Math.abs(s.npcs[0].x-(97-.125*speed))<1e-8);assert.equal(s.npcs[0].construction,null);
  s=at(arrival+.125);assert.equal(s.water[0].owner,null);assert.ok(Math.abs(s.npcs[0].construction.elapsed-.125)<1e-8);
  s=at(arrival+2.5);assert.equal(s.water[0].owner,'npc1');assert.ok(Math.abs(s.npcs[0].cooldownRemaining-3)<1e-8);const x=s.npcs[0].x;
@@ -26,10 +26,10 @@ test('earlier NPC completion wins even when player is processed in the same long
  at(0);let s=at(.25,{x:100,y:0});assert.equal(s.construction.contested,true);assert.equal(s.npcs[0].construction.contested,true);
  s=at(3,{x:100,y:0});assert.equal(s.water[0].owner,'npc1');assert.equal(s.captured,0);assert.equal(s.totalHoses,0);assert.equal(s.construction,null);assert.equal(s.npcs[0].construction,null);assert.equal(race.cancelConstruction().totalHoses,0);
 });
-test('difficulty maps easy/normal/hard to 2/3/4 NPCs, explicit count overrides, all dispatch no earlier than 10s',()=>{
+test('difficulty maps easy/normal/hard to 2/3/4 NPCs, explicit count overrides, all dispatch no earlier than 5s',()=>{
  for(const [difficulty,count] of [['easy',2],['normal',3],['hard',4]]){
   const {race,at}=setup({stations:[{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}],config:{difficulty,npcCount:undefined}});let s=race.getState();assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);
-  assert.ok(at(9.9).npcs.every(n=>!n.active&&n.x===0));assert.ok(at(10).npcs.every(n=>n.active&&n.x===0));assert.ok(Math.abs(at(11).npcs[0].x-10*RULES.npcSpeedRatio)<1e-8);
+  assert.ok(at(4.9).npcs.every(n=>!n.active&&n.x===0));assert.ok(at(5).npcs.every(n=>n.active&&n.x===0));assert.ok(Math.abs(at(6).npcs[0].x-10*RULES.npcSpeedRatio)<1e-8);
  }
  const override=setup({stations:[{x:0,y:0}],config:{difficulty:'hard',npcCount:1}});assert.equal(override.race.getState().npcs.length,1);
  assert.throws(()=>setup({config:{difficulty:'bogus'}}),/難度|規則/);

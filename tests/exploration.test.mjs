@@ -26,7 +26,7 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   box.setTimeout=fn=>timers.push(fn);
   box.requestAnimationFrame=f=>frames.push(t=>{now=t+offset;f(now);});
   box.performance={now:()=>now};
-  Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'),await import('../incident.mjs'));
+  Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'),await import('../incident.mjs'),await import('../ui.mjs'));
  // Free-space speed/input fixtures exclude scenery; crowd slowdown has its own integration case.
  if(movementOnly){const layout=box.createIncident;box.createIncident=o=>({...layout(o),people:[]});}
   // One-line synthetic road fixtures exercise legacy mechanics, not perimeter geography.
@@ -58,6 +58,14 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('追加：500m載入、10→14→18→22→26分波、公告排隊與標記三秒閃爍',async()=>{
+ const h=await harness(),make=h.box.createRace,fetch=h.box.fetch,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');
+ h.box.createRace=o=>make({...o,config:{...o.config,npcCount:0}});h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[...Array.from({length:10},(_,i)=>40+i*10),...Array.from({length:8},(_,i)=>310+i*10),...Array.from({length:8},(_,i)=>410+i*10)].map(d=>[home.x-30+d,home.y,'hydrant_above'])}:fetch(url);
+ await h.click('start-game');assert.equal(h.raceInputs[0].config.waves,true);assert.equal(h.raceInputs[0].config.targetRadius,500);assert.equal(h.window.__game.getState().race.total,10);h.advance(30000);assert.equal(h.window.__game.getState().race.total,14);assert.equal(h.elements.get('stolen-feedback').textContent,'📢 增援範圍擴大！新增 4 個消防栓');assert.ok(h.window.__game.getState().race.water.slice(-4).every(w=>w.openedAt===30));for(const [ms,n]of [[60000,18],[90000,22],[120000,26]]){h.advance(ms);assert.equal(h.window.__game.getState().race.total,n);}assert.match(h.elements.get('mission-rules').textContent,/5秒/);
+});
+test('追加：場景與停車全部在消防栓前畫，玩家最後；結算半旗但號碼維持11px',async()=>{
+ const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();const images=h.drawCalls.filter(c=>c[0]==='drawImage').map(c=>c[1].url);const water=images.findIndex(v=>v.includes('water_icons'));assert.ok(water>images.findLastIndex(v=>/fire_engine|ladder_truck|ambulance|police_car|bystanders|fire_big|fire_small/.test(v)));assert.ok(images.findIndex(v=>v.includes('/assets/rhino'))>water);h.advance(180000);assert.ok(h.drawCalls.some(c=>c[0]==='scale'&&c[1]===.5&&c[2]===.5));assert.ok(h.drawCalls.some(c=>c[0]==='set'&&c[1]==='font'&&c[2]==='bold 11px sans-serif'));
+});
 test('v3 人群1.5m內只令玩家走跑乘0.6並飄借過，不改基準5與10',async()=>{
  const h=await harness({movementOnly:true}),layout=h.box.createIncident,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');h.box.createIncident=o=>({...layout(o),people:[{x:home.x,y:home.y}]});
  await h.click('start-game');const get=()=>h.window.__game.getState();assert.ok(Math.hypot(get().x-home.x,get().y-home.y)<1.5);const start=get().x;h.frames.shift()(1000);h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.3)<1e-8);assert.equal(get().incident.crowdFactor,.6);assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]==='借過借過'));
@@ -185,8 +193,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
  }
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
- const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,6);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3d')),imports.join(', '));
+ const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,7);
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3e')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -206,15 +214,15 @@ test('v2 無候選不抽假題，水源fetch失敗可原地重試而不留下卡
 });
 test('v2 每題限定所屬分隊，以建物火場中心載入附近水格並只交付最近300m15目標',async()=>{
  const h=await harness({realData:true,autoIntro:false});await h.click('start-game');const s=h.window.__game.getState(),input=h.raceInputs[0];
- assert.equal(input.sites.length,1);assert.equal(input.sites[0].st,s.station);assert.equal(input.config.targetRadius,300);
- const mission=await import('../missions.mjs');const wanted=mission.waterCellKeys(input.sites[0],JSON.parse(await readFile(new URL('data/w/index.json',root))),500,300);
+ assert.equal(input.sites.length,1);assert.equal(input.sites[0].st,s.station);assert.equal(input.config.targetRadius,500);
+ const mission=await import('../missions.mjs');const wanted=mission.waterCellKeys(input.sites[0],JSON.parse(await readFile(new URL('data/w/index.json',root))),500,500);
  assert.deepEqual(h.calls.filter(c=>c.includes('/w/')&&!c.endsWith('index.json')).sort(),wanted.map(k=>`./data/w/${k}.json`).sort());
  const raw=JSON.parse(await readFile(new URL('data/sites.json',root))).find(a=>a.n===input.sites[0].n&&a.addr===input.sites[0].addr);
  const resolved=mission.resolveFireSite(raw,input.buildings);assert.equal(input.sites[0].x,resolved.x);assert.equal(input.sites[0].y,resolved.y);
  const rows=await Promise.all(wanted.map(async key=>({key,rows:JSON.parse(await readFile(new URL(`data/w/${key}.json`,root)))})));
- const expected=mission.selectObjectives(mission.decodeWaterCells(rows,input.roads),resolved,300,15);
- assert.deepEqual(Array.from(input.water,w=>[w.x,w.y,w.k,w.n]),expected.map(w=>[w.x,w.y,w.k,w.n]));assert.ok(input.water.length>0&&input.water.length<=15);
- assert.ok(input.water.every(w=>Math.hypot(w.x-resolved.x,w.y-resolved.y)<=300));
+ const expected=mission.selectObjectives(mission.decodeWaterCells(rows,input.roads),resolved,500,Infinity);
+ assert.deepEqual(Array.from(input.water,w=>[w.x,w.y,w.k,w.n]),expected.map(w=>[w.x,w.y,w.k,w.n]));assert.ok(input.water.length>=10);
+ assert.ok(input.water.every(w=>Math.hypot(w.x-resolved.x,w.y-resolved.y)<=500));
  await h.skipPrelude();h.advance(2000);assert.equal(h.window.__game.getState().race.site.x,resolved.x);
 });
 test('v2 遠分隊重選先釋放舊pins，復興兩題再舊莊仍以新建物解析火場',async()=>{
@@ -260,12 +268,11 @@ test('v2 非目標淡畫以穩定cell-row sourceId對照，重名重座標也不
  const h=await harness(),fetch=h.box.fetch,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');
  h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[...Array.from({length:21},()=>[home.x,home.y,'hydrant_above']),[home.x+400,home.y,'hydrant_under']]}:fetch(url);
  await h.click('start-game');const s=h.window.__game.getState(),input=h.raceInputs[0];
- assert.equal(s.race.total,15);assert.equal(s.race.captured,0,'進3m開始施工，不再瞬間佔20點');assert.ok(s.race.construction);assert.equal(s.race.water.length,15);
+ assert.equal(s.race.total,10);assert.equal(s.race.captured,0,'進3m開始施工，不再瞬間佔20點');assert.ok(s.race.construction);assert.equal(s.race.water.length,10);
  assert.ok(input.water.every(w=>w.sourceId===w.id&&typeof w.id==='string'),'preserve cell-row identity before numeric race id overwrite');
- assert.equal(new Set(s.race.water.map(w=>w.sourceId)).size,15);assert.ok(s.race.water.every(w=>typeof w.id==='number'));
+ assert.equal(new Set(s.race.water.map(w=>w.sourceId)).size,10);assert.ok(s.race.water.every(w=>typeof w.id==='number'));
  const marks=[],mark=h.box.waterMark;h.box.waterMark=(...args)=>{marks.push(args);return mark(...args);};h.window.__game.renderScene();
- const non=marks.filter(a=>a[7]===false);assert.equal(non.length,6,'rows 16 through 21 stay non-target; out-of-view point is culled');assert.ok(non[0][1].id.endsWith(':15'));
- assert.equal(non[0][1].owner,undefined);
+ const non=marks.filter(a=>a[7]===false);assert.equal(non.length,0,'尚未開放來源不畫，不會變成可搶目標');assert.ok(marks.length>=10);assert.ok(marks.every(a=>s.race.water.some(w=>w.sourceId===a[1].sourceId)));
 });
 test('v2 boot只載base sites與水源索引，不載全域水源',async()=>{
  const h=await harness();assert.deepEqual(h.calls.filter(c=>c.startsWith('./data/')).sort(),['./data/base.json','./data/mission-pool.json','./data/sites.json','./data/w/index.json']);
@@ -286,7 +293,7 @@ test('v2 重選中止前奏並清除卡片，再次出勤記住教學，storage�
 test('v2 出勤卡三秒與首次三步教學結束之前不啟動計時且鎖輸入',async()=>{
  const h=await harness({autoIntro:false}),get=()=>h.window.__game.getState();await h.click('start-game');
  assert.equal(get().phase,'mission');assert.match(h.elements.get('mission-detail').textContent,/測試場所.*測試路1號/);
- assert.match(h.elements.get('mission-rules').textContent,/3分鐘.*10秒/);
+ assert.match(h.elements.get('mission-rules').textContent,/3分鐘.*5秒/);
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});const x=get().x;
  h.advance(2999);assert.equal(get().phase,'mission');assert.equal(get().x,x);assert.equal(get().race.status,'idle');
  h.advance(3000);assert.equal(get().phase,'tutorial');
@@ -316,18 +323,18 @@ test('本機五倍速流程仍有真兩秒intro，30秒轉緊張、36秒結算�
     assert.deepEqual(Object.keys(h.window.__game).sort(),['getState','renderScene']);
   }
 });
-test('本機快轉NPC沿真實幾何與正常模型逐階一致，10秒出動、搶水源直到結果（桌機手機）',async()=>{
+test('本機快轉NPC沿真實幾何與正常模型逐階一致，5秒出動、搶水源直到結果（桌機手機）',async()=>{
   for(const viewport of [[1280,800],[390,844]]){
     const normal=await harness({realData:true,viewport,autoIntro:false});
     const fast=await harness({realData:true,viewport,autoIntro:false,location:new URL('http://127.0.0.1/?test=1')});
     for(const h of [normal,fast]){await h.click('start-game');await h.skipPrelude();h.advance(2000);}
-    for(const seconds of [9,10,11,40,80,120,160,179,180]){
+    for(const seconds of [4,5,6,30,40,60,80,90,120,160,179,180]){
       normal.advance(2000+seconds*1000);fast.advance(2000+seconds*1000/5);
       const a=normal.window.__game.getState(),b=fast.window.__game.getState();
       assert.deepEqual(b.race,a.race,`${viewport}: ${seconds} model seconds`);
       assert.equal(b.phase,a.phase);
-      if(seconds===9)assert.ok(b.race.npcs.every(n=>!n.active));
-      if(seconds===10)assert.ok(b.race.npcs.every(n=>n.active));
+      if(seconds===4)assert.ok(b.race.npcs.every(n=>!n.active));
+      if(seconds===5)assert.ok(b.race.npcs.every(n=>n.active));
       if(seconds===179)assert.ok(b.race.water.some(w=>w.owner?.startsWith('npc')),'真模型NPC確實佔領');
       normal.drawCalls.length=fast.drawCalls.length=0;
     }

@@ -1,8 +1,8 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3b';
-import {createMusicPlayer} from './music.mjs?v=6v3b';
-import {RULES,NPC_COUNTS,createRace} from './race.mjs?v=6v3b';
-import {localTestRate} from './qa-clock.mjs?v=6v3b';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3b';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3c';
+import {createMusicPlayer} from './music.mjs?v=6v3c';
+import {RULES,NPC_COUNTS,createRace,roundStars,rememberHighScore} from './race.mjs?v=6v3c';
+import {localTestRate} from './qa-clock.mjs?v=6v3c';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3c';
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
@@ -13,7 +13,7 @@ let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=fals
 const walkSpeed=5,runSpeed=10,metersPerUnit=1,collisionRadius=.32;
 const music=createMusicPlayer();
 let musicError=false;
-let eligibleMissions=new Set();
+let eligibleMissions=new Set(),captureEffects=[],interceptTimer;
 let sites=[],water=[],waterKeys=[],race=null,siteIndex=-1,introAt=0,introSite=null,tense=false;
 const pinnedCells=new Set();
 let roadsVersion=0,roadsAt=-1,roadCache=[];
@@ -232,11 +232,12 @@ function update(dt){
 function waterMark(c,source,px,py,size=1,result=false,index=null,target=true,near=true){
   c.save();c.translate(px,py);c.scale(size,size);c.textAlign='center';
   const owner=source.owner,isPlayer=owner==='player';
+  const effect=!result&&isPlayer?captureEffects.find(e=>e.waterId===source.id):null;if(effect){const age=performance.now()-effect.at;c.translate(0,-8*Math.sin(Math.PI*Math.min(1,age/550)));}
   c.globalAlpha=target?1:.25;
   if(target&&near&&!result){c.shadowColor='#ffe64d';c.shadowBlur=12;}
   c.fillStyle=owner?(isPlayer?'#238a50':'#69727a'):target?(Math.floor(performance.now()/500)%2?'#ffe64d':'#fff4a3'):'#d3ddda';
-  c.strokeStyle='#263e39';c.lineWidth=1;c.beginPath();c.arc(0,0,10,0,Math.PI*2);c.fill();c.stroke();c.shadowBlur=0;
-  c.fillStyle=owner?'#fff':'#176986';c.font='bold 12px sans-serif';c.fillText(({hydrant_above:'栓',hydrant_under:'▣'})[source.k]||'◆',0,4);
+  c.strokeStyle='#263e39';c.lineWidth=1;c.beginPath();if(source.k==='hydrant_under')c.rect(-12,-12,24,24);else c.arc(0,0,14,0,Math.PI*2);c.fill();c.stroke();c.shadowBlur=0;
+  c.fillStyle=owner?'#fff':source.k==='hydrant_above'?'#be3a26':'#176986';c.font='bold 14px sans-serif';c.fillText(({hydrant_above:'栓',hydrant_under:'▣'})[source.k]||'◆',0,4);
   if(owner){c.strokeStyle=isPlayer?'#20734b':'#5a6169';c.beginPath();c.moveTo(7,5);c.lineTo(7,-15);c.stroke();c.fillStyle=isPlayer?'#238a50':'#69727a';c.fillRect(7,-15,16,11);c.fillStyle='#fff';c.font='8px sans-serif';c.fillText(isPlayer?'犀':'車',15,-7);}
   if(result||near){c.font='11px sans-serif';c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3;const label=result?String(index+1):source.n;c.strokeText(label,0,24);c.fillText(label,0,24);}c.restore();
 }
@@ -284,15 +285,20 @@ function drawRace(c,scale,w,h,isMini=false){
       const radius=isMini?4:16*ratio;c.save();c.strokeStyle='#e13232';c.lineWidth=isMini?1:2*ratio;c.strokeRect(a-radius,b-radius,radius*2,radius*2);c.restore();
     }
   }
+  if(!isMini){const now=performance.now();captureEffects=captureEffects.filter(e=>now-e.at<1200);
+    for(const effect of captureEffects){const source=snapshot?.water.find(a=>a.id===effect.waterId);if(!source)continue;const age=now-effect.at,labels=['+1',...(effect.comboBonus?[`連擊×${effect.combo} +1`]:[]),...(effect.interceptBonus?['截胡！ +1']:[])];
+      c.save();c.globalAlpha=Math.max(0,1-age/1200);c.textAlign='center';c.font=`bold ${16*ratio}px sans-serif`;c.lineWidth=3*ratio;c.strokeStyle='#263e39';c.fillStyle='#ffe64d';labels.forEach((text,i)=>{const a=px(source.x),b=py(source.y)-(34+age/35+i*20)*ratio;c.strokeText(text,a,b);c.fillText(text,a,b);});c.restore();
+    }
+  }
   for(const npc of snapshot?.npcs||[]){if(!npc.active)continue;const a=px(npc.x),b=py(npc.y);if(isMini){c.fillStyle='#e13232';c.beginPath();c.arc(a,b,3,0,Math.PI*2);c.fill();continue;}c.save();c.translate(a,b);c.rotate(Math.atan2(-npc.direction.y,npc.direction.x));c.scale(ratio,ratio);
     // Original pixel truck: cab faces local +x; roof ladder and two blue lights.
     c.fillStyle='#26363a';c.fillRect(-15,-9,7,4);c.fillRect(8,-9,6,4);c.fillRect(-15,5,7,4);c.fillRect(8,5,6,4);c.fillStyle='#c93d32';c.fillRect(-18,-6,34,12);c.fillStyle='#f3e6c0';c.fillRect(-16,-4,19,2);c.fillRect(-16,2,19,2);c.fillRect(-15,-4,2,8);c.fillRect(-8,-4,2,8);c.fillStyle='#91c9d3';c.fillRect(8,-5,6,10);c.fillStyle='#4e92f0';c.fillRect(5,-6,3,3);c.fillRect(5,3,3,3);c.fillStyle='#ffe398';c.fillRect(15,-5,2,3);c.fillRect(15,2,2,3);c.restore();
   }c.restore();
 }
 function drawResultMap(){
-  const s=race?.getState();if(!s)return;const map=$('result-map'),w=Math.max(280,Math.round(map.getBoundingClientRect().width)),h=360;
+  const s=race?.getState();if(!s)return;const map=$('result-map'),w=Math.max(280,Math.round(map.getBoundingClientRect().width)),h=Math.max(140,Math.round(map.getBoundingClientRect().height));
   if(map.width!==w)map.width=w;if(map.height!==h)map.height=h;const c=map.getContext('2d');
-  const points=[s.site.x-520,s.site.y-520,s.site.x+520,s.site.y+520,...s.water.flatMap(a=>[a.x,a.y])], [l,b,r,t]=bounds(points),scale=Math.min((w-50)/(r-l),(h-50)/(t-b));
+  const points=[s.site.x,s.site.y,...s.water.flatMap(a=>[a.x,a.y])], [l,b,r,t]=bounds(points),scale=Math.min((w-50)/Math.max(60,r-l),(h-50)/Math.max(60,t-b));
   const px=v=>w/2+(v-(l+r)/2)*scale,py=v=>h/2-(v-(b+t)/2)*scale;
   c.fillStyle='#e6dfc5';c.fillRect(0,0,w,h);c.strokeStyle='#a7ad9c';c.lineWidth=2;
   for(const road of loadedRoads()){c.beginPath();for(let i=0;i<road.p.length;i+=2)i?c.lineTo(px(road.p[i]),py(road.p[i+1])):c.moveTo(px(road.p[i]),py(road.p[i+1]));c.stroke();}
@@ -300,14 +306,24 @@ function drawResultMap(){
 }
 function finishRound(){
   phase='result';ready=false;clearInput();$('overview-dialog').close();$('music-settings-dialog').close();$('intro').hidden=true;musicAction('setState','result');const s=race.getState();
-  $('result-score').textContent=`${s.captured} / ${s.total}`;$('result-address').textContent=`${s.site.n}｜${s.site.addr}`;
+  const stars=roundStars(s.captured,s.total);let storage;try{storage=localStorage;}catch{}
+  const best=rememberHighScore(storage,s.difficulty,s.score);
+  $('result-score').textContent=`${s.score} 分`;$('result-stars').textContent='★'.repeat(stars)+'☆'.repeat(3-stars);$('result-stars').setAttribute('aria-label',`${stars}星`);
+  $('result-captured').textContent=`已佔 ${s.captured} / ${s.total}・連擊 +${s.comboBonus}・截胡 +${s.interceptBonus}`;
+  $('result-best').textContent=`${{easy:'簡單',normal:'普通',hard:'困難'}[s.difficulty]}最高分 ${best} 分`;
+  $('result-address').textContent=`${s.site.n}｜${s.site.addr}`;
+  const nearest=[...s.water].sort((a,b)=>Math.hypot(a.x-s.site.x,a.y-s.site.y)-Math.hypot(b.x-s.site.x,b.y-s.site.y))[0];
+  $('result-nearest').textContent=nearest?`離火場最近的消防栓：${nearest.n}，${Math.round(Math.hypot(nearest.x-s.site.x,nearest.y-s.site.y))} 公尺`:'';
+  $('result-hoses').textContent=`本局共佈了 ${s.totalHoses} 條水帶`;$('result-details').open=false;
   $('result-list').textContent=s.water.map((a,i)=>`${i+1}. ${a.n}（${{hydrant_above:'地上消防栓',hydrant_under:'地下消防栓'}[a.k]||a.k}）— ${a.owner==='player'?'犀牛綠旗・已佔領':a.owner?'灰旗・消防車已搶走':'閃黃・未找到'}`).join('\n');
-  updateConstructionUI();$('result-dialog').showModal();drawResultMap();
+  updateConstructionUI();$('result-dialog').showModal();$('result-score').focus({preventScroll:true});$('result-dialog').scrollTop=0;drawResultMap();
 }
 function updateConstructionUI(){
   const s=race?.getState(),c=phase==='playing'&&s?.status==='playing'?s.construction:null;
   const panel=$('construction-panel'),progress=$('construction-progress');
   panel.hidden=!c;progress.max=c?.duration||1;progress.value=c?.elapsed||0;
+  if(phase==='playing'&&s.remaining>0&&s.remaining<=30)$('world').classList.add('urgent');else $('world').classList.remove('urgent');
+  $('round-score').textContent=`${s?.score||0} 分`;if(phase!=='playing'){captureEffects=[];$('intercept-feedback').hidden=true;}
   $('construction-detail').textContent=c?`水帶 ${c.hoses}條 · ${c.elapsed.toFixed(1)} / ${c.duration.toFixed(1)}秒`:'';
   $('construction-status').textContent=c?(c.contested?'搶線中！':'佈線中・暫時不能移動'):'';
   $('total-hoses').textContent=`水帶 ${s?.totalHoses||0}條`;
@@ -326,7 +342,7 @@ function tickRace(dt){
   if(phase!=='playing'||!race)return;
   race.tick(dt*testRate,{x,y});const s=race.getState();const seconds=Math.max(0,Math.ceil(s.remaining));$('countdown').textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;$('captured').textContent=`已佔 ${s.captured}/${s.total}`;
   if(s.remaining<=30&&!tense){tense=true;musicAction('setState','tense');}
-  for(const e of race.drainEvents()){if(e.type==='capture'){musicAction('cue','capture');message(`犀牛插旗！${e.waterName} +1`,2200);}if(e.type==='stolen'){musicAction('cue','lost');message(`${e.waterName}被搶走了`,2600);}if(e.type==='horn')musicAction('cue','horn');}
+  for(const e of race.drainEvents()){if(e.type==='capture'){musicAction('cue','capture');captureEffects.push({...e,at:performance.now()});if(e.interceptBonus){clearTimeout(interceptTimer);$('intercept-feedback').textContent='截胡！ +1';$('intercept-feedback').hidden=false;interceptTimer=setTimeout(()=>{$('intercept-feedback').hidden=true;},1200);}message(`犀牛插旗！${e.waterName} +1${e.comboBonus?`・連擊×${e.combo} +1`:''}${e.interceptBonus?'・截胡 +1':''}`,2200);}if(e.type==='stolen'){musicAction('cue','lost');message(`${e.waterName}被搶走了`,2600);}if(e.type==='horn')musicAction('cue','horn');}
   if(s.status==='finished')finishRound();
 }
 function loop(now){const dt=previous?(now-previous)/1000:0;previous=now;update(dt);tickRace(dt);renderScene();requestAnimationFrame(loop);}

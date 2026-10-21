@@ -56,6 +56,21 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('v3 末30秒紅框與音樂加速，加分事件顯示連擊及截胡',async()=>{
+ const h=await harness();const create=h.box.createRace;let events=[];h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>({...m.getState(),remaining:30}),tick(){},drainEvents:()=>events.splice(0)};};await h.click('start-game');events.push({type:'capture',waterId:0,waterName:'測試消防栓',combo:2,comboBonus:1,interceptBonus:1});h.advance(100);assert.ok(h.calls.includes('state:tense'));assert.match(h.elements.get('intercept-feedback').textContent,/截胡/);assert.equal(h.elements.get('intercept-feedback').hidden,false);assert.ok(h.drawCalls.some(c=>c[0]==='fillText'&&String(c[1]).includes('連擊×2')));assert.match(h.source,/classList\.add\('urgent'\)/);
+});
+test('v3 右上只留單排工具，縮放收進設定，兩種消防栓放大且圖形不同',async()=>{
+ const h=await harness();const tools=h.html.match(/class="tools">([^]*?)<\/div>/)[1];assert.doesNotMatch(tools,/id="zoom-/);assert.match(h.html,/id="music-settings-dialog"[^]*?id="zoom-in"/);await h.click('start-game');h.advance(180000);assert.ok(h.drawCalls.some(c=>c[0]==='rect'&&c[1]===-12&&c[2]===-12&&c[3]===24));
+});
+test('v3 結算地圖依本題實際範圍放大，不用固定大範圍把目標擠成一團',async()=>{
+ const h=await harness();await h.click('start-game');h.advance(180000);const at=h.drawCalls.findLastIndex(c=>c[0]==='arc'&&c[3]===6),centres=h.drawCalls.slice(at+1).filter(c=>c[0]==='translate');assert.ok(centres.length>=3);const xs=centres.map(c=>c[1]);assert.ok(Math.max(...xs)-Math.min(...xs)>600,'780px測試畫布應充分展開本題249m寬的消防栓，而非固定640m留白');
+});
+test('v3 結算以含加分總分為主、星等只算佔領率，清單每局收合且從頂部顯示',async()=>{
+ const h=await harness();let finished=false;const create=h.box.createRace;
+ h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>({...m.getState(),score:17,captured:6,total:15,totalHoses:31,comboBonus:5,interceptBonus:6,status:finished?'finished':'playing'}),tick(){},drainEvents:()=>[]};};
+ await h.click('start-game');finished=true;h.advance(100);
+ assert.equal(h.window.__game.getState().phase,'result');assert.equal(h.elements.get('result-score').textContent,'17 分');assert.equal(h.elements.get('result-stars').textContent,'★★☆');assert.match(h.elements.get('result-captured').textContent,/6.*15/);assert.match(h.elements.get('result-hoses').textContent,/31/);assert.match(h.elements.get('result-nearest').textContent,/最近.*消防栓.*公尺/);assert.match(h.elements.get('result-best').textContent,/普通.*17/);assert.equal(h.elements.get('result-details').open,false);assert.equal(h.elements.get('result-dialog').scrollTop,0);assert.equal(h.box.document.activeElement.id,'result-score');assert.equal(h.storage.get('zteam-rpg-highscore-normal'),'17');
+});
 test('B2 施工先於移動鎖定並清雙指，計時持續；原生取消清進度不殘留輸入',async()=>{
  const h=await harness();let construction={waterId:0,hoses:7,duration:3.5,elapsed:.5,contested:true},ticks=0,cancelled=0;
  const create=h.box.createRace;h.box.createRace=options=>{const model=create(options);return {...model,getState:()=>({...model.getState(),construction,totalHoses:4}),tick:(...args)=>{ticks++;return model.tick(...args);},cancelConstruction:()=>{cancelled++;construction=null;}};};
@@ -146,7 +161,7 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,5);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3b')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3c')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -552,7 +567,7 @@ test('頂部只有設定入口，音樂靜音收進設定且無曲目選單或�
   const h=await harness(),header=h.html.match(/<header[^>]*>(.*?)<\/header>/s)[1];
   assert.equal((header.match(/<button/g)||[]).length,1);assert.match(header,/id="music-settings"[^>]*>設定<\/button>/);assert.doesNotMatch(header,/music-toggle|music-track/);
   const settings=h.html.match(/<dialog id="music-settings-dialog"[^>]*>(.*?)<\/dialog>/s)?.[1];
-  assert.ok(settings,'音樂在獨立設定內');assert.equal((settings.match(/<button/g)||[]).length,2);
+  assert.ok(settings,'音樂與縮放在獨立設定內');assert.equal((settings.match(/<button/g)||[]).length,4);assert.match(settings,/id="zoom-in"/);assert.match(settings,/id="zoom-out"/);
   assert.match(settings,/id="music-toggle"/);assert.match(settings,/id="music-settings-close"/);
   assert.doesNotMatch(h.html,/id="(?:music-track|home)"/);
   const footer=h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,'');

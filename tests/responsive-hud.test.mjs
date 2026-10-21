@@ -19,16 +19,16 @@ test('目前所在 is a single upper-right row, with ellipsis and separate count
  assert.equal(latest('.location','width'),'calc(100% - 112px)');
  assert.equal(latest('.location small','text-overflow'),'ellipsis');
 });
-test('施工取消是高於雙指層的原生48px按鈕，HUD三行不溢出',()=>{
+test('施工取消是高於雙指層的原生48px按鈕，HUD四行不溢出',()=>{
  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  assert.match(html,/<button id="construction-cancel" type="button">取消佈線<\/button>/);
  assert.equal(latest('#construction-panel','pointer-events'),'auto');assert.ok(Number(latest('#construction-panel','z-index'))>4);
  assert.ok(parseFloat(latest('#construction-cancel','min-height'))>=48);assert.equal(latest('#construction-cancel','touch-action'),'manipulation');
- assert.ok(parseFloat(latest('.race-hud','height'))>=64,'倒數、佔領與水帶三行需要64px以上');
+ assert.match(html,/id="round-score"/);assert.ok(parseFloat(latest('.race-hud','height'))>=80,'倒數、佔領、水帶與分數四行需要80px以上');
 });
-test('cache entrypoints consistently invalidate 6v3b',()=>{
+test('cache entrypoints consistently invalidate 6v3c',()=>{
  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  const game=readFileSync(new URL('../game.js',import.meta.url),'utf8');
  const versions=[...`${html}\n${game}`.matchAll(/\?v=([^'";\s]+)/g)].map(m=>m[1]);
- assert.ok(versions.length>=7);assert.deepEqual([...new Set(versions)],['6v3b']);
+ assert.ok(versions.length>=7);assert.deepEqual([...new Set(versions)],['6v3c']);
 });

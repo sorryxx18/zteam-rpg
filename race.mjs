@@ -3,6 +3,12 @@ import {circleIntersectsPoly} from './core.mjs';
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
 export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:10,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
 const freeze = value => {if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
+export function roundStars(captured,total){const ratio=total>0?captured/total:0;return ratio<.3?1:ratio<.6?2:3;}
+export function rememberHighScore(storage,difficulty,score){
+ const key=`zteam-rpg-highscore-${difficulty}`;let previous=0;
+ try{const stored=Number(storage?.getItem(key));if(Number.isFinite(stored)&&stored>=0)previous=stored;}catch{}
+ const best=Math.max(previous,score);try{storage?.setItem(key,String(best));}catch{}return best;
+}
 export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=()=>performance.now(),random=Math.random,canStand=()=>true,config={}}){
  const rules={...RULES,...config};
  const counts=NPC_COUNTS;
@@ -16,7 +22,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
  for(const key of ['roundSeconds','npcDelaySeconds','npcStaggerSeconds','spawnDistance','targetRadius','captureRadius','runSpeed','npcSpeedRatio'])if(!Number.isFinite(rules[key])||rules[key]<0)throw new Error('規則數值無效');
  if(!['nearest-station','perimeter'].includes(rules.npcSpawnMode))throw new Error('消防車出生模式無效');
  if(!['near-site','nearest-station'].includes(rules.spawnMode)||!Number.isInteger(rules.npcCount)||rules.npcCount<0||rules.npcCount>4)throw new Error('規則模式無效');
- const graph=buildRoadGraph(roads,{buildings});let state={status:'idle',difficulty:rules.difficulty,site:null,spawn:null,remaining:rules.roundSeconds,captured:0,totalHoses:0,construction:null,total:0,water:[],npcs:[]},events=[],started=0,elapsed=0,meta=[];
+ const graph=buildRoadGraph(roads,{buildings});let state={status:'idle',difficulty:rules.difficulty,site:null,spawn:null,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:0,water:[],npcs:[]},events=[],started=0,elapsed=0,meta=[];
  let cancelled=new Set(),geometryCache=new WeakMap(),lastPlayer=null;
  // Private graph geometry only: never cache ownership, reservations or canStand.
  // Each NPC retains at most 20 queries for its exact current position.
@@ -32,10 +38,10 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   return {...cached,route:cached.route?{distance:cached.route.distance,points:cached.route.points.map(p=>({...p}))}:null};
  };
  const snapshot=()=>freeze(structuredClone(state));
- const event=(type,w=null,n=null)=>events.push({type,waterId:w?.id??null,waterName:w?.n??null,npcId:n?.id??null});
+ const event=(type,w=null,n=null,details={})=>events.push({type,waterId:w?.id??null,waterName:w?.n??null,npcId:n?.id??null,...details});
  const horn=(n,time)=>{const m=meta[state.npcs.indexOf(n)];if(time-m.horn>=8){m.horn=time;event('horn',null,n);}};
  const construction=w=>{const hoses=Math.max(1,Math.ceil(distance(w,state.site)/20));return {waterId:w.id,hoses,duration:Math.min(6,hoses*.5),elapsed:0,contested:false};};
- const claim=(w,owner,n=null,time=elapsed)=>{if(w.owner!==null)return;w.owner=owner;if(owner==='player'){state.captured++;state.totalHoses+=state.construction.hoses;event('capture',w);}else{n.cooldownRemaining=3;event('stolen',w,n);horn(n,time);}if(state.construction?.waterId===w.id)state.construction=null;for(const car of state.npcs)if(car.target===w.id){car.target=null;car.route=[];car.construction=null;}};
+ const claim=(w,owner,n=null,time=elapsed)=>{if(w.owner!==null)return;w.owner=owner;if(owner==='player'){state.combo=state.combo&&time<=state.comboExpiresAt+1e-9?state.combo+1:1;state.comboExpiresAt=time+15;const comboBonus=state.combo>=2?1:0,interceptBonus=state.npcs.some((car,i)=>time>=meta[i].delay-1e-9&&distance(car,w)<=30+1e-9)?1:0;state.captured++;state.comboBonus+=comboBonus;state.interceptBonus+=interceptBonus;state.score+=1+comboBonus+interceptBonus;state.totalHoses+=state.construction.hoses;event('capture',w,null,{timeSeconds:time,combo:state.combo,comboBonus,interceptBonus});}else{n.cooldownRemaining=3;event('stolen',w,n);horn(n,time);}if(state.construction?.waterId===w.id)state.construction=null;for(const car of state.npcs)if(car.target===w.id){car.target=null;car.route=[];car.construction=null;}};
  const legalCurbSegment=(a,b,edge)=>{
   const clearance=edge.w/2-.32;
   if(clearance<0||distance(a,b)>clearance||!canStand(a.x,a.y)||!canStand(b.x,b.y))return false;
@@ -72,7 +78,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   else {for(let i=0;i<72;i++){const angle=i*Math.PI/36,p={x:site.x+Math.cos(angle)*rules.spawnDistance,y:site.y+Math.sin(angle)*rules.spawnDistance};if(canStand(p.x,p.y)){spawn=p;break;}}}
   if(!spawn)throw new Error('找不到可站立的出生位置');
   started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();lastPlayer=null;
-  state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,totalHoses:0,construction:null,total:targets.length,water:targets,npcs:[]};
+  state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:targets.length,water:targets,npcs:[]};
   const entries=rules.npcSpawnMode==='perimeter'?perimeterEntries(graph,site,rules.npcCount,canStand):null;
   for(let i=0;i<rules.npcCount&&(entries||near.length);i++){const s=near[i]??near[0],p=entries?entries[i]:project(graph,s)?.q??s;state.npcs.push({id:`npc${i+1}`,x:p.x,y:p.y,direction:{x:0,y:0},active:false,target:null,route:[],construction:null,cooldownRemaining:0});meta.push({delay:rules.npcDelaySeconds+(!entries&&i>=near.length?rules.npcStaggerSeconds:0),horn:-Infinity});}
   return snapshot();
@@ -114,7 +120,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
    for(const n of state.npcs){if(!n.active)continue;if(n.cooldownRemaining>0)n.cooldownRemaining=Math.max(0,n.cooldownRemaining-span);else if(n.construction)n.construction.elapsed+=span;else move(n,span*rules.runSpeed*rules.npcSpeedRatio);}
    time+=span;
   }
-  elapsed=now;state.remaining=Math.max(0,rules.roundSeconds-now);
+  elapsed=now;state.remaining=Math.max(0,rules.roundSeconds-now);if(now>state.comboExpiresAt+1e-9)state.combo=0;
   if(now>=rules.roundSeconds){state.status='finished';state.construction=null;for(const n of state.npcs)n.construction=null;event('finish');return snapshot();}
   for(const id of cancelled){const w=state.water.find(w=>w.id===id);if(pointOK(player)&&distance(player,w)>rules.captureRadius)cancelled.delete(id);}
   // Player coordinates are an observation at NOW, not a path through the past dt.

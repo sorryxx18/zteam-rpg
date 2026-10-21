@@ -65,4 +65,15 @@ footer{flex:0 0 auto;justify-content:center;padding:5px 6px;white-space:nowrap}f
 .race-hud strong{font-size:21px;line-height:25px}
 .tools{top:48px;right:12px}
 .copyright{margin-left:10px;opacity:.75}
+/* Score feedback and compact results never change world geometry. */
+.race-hud{height:86px}#round-score{font-size:12px;font-weight:bold;color:#24644b}
+.tools{display:flex;flex-wrap:nowrap}.zoom-controls{display:flex;gap:12px}.zoom-controls button{width:48px;height:44px;font-size:22px;background:#e8dfc5;border:2px solid #879078}
+#world.urgent::after{content:'';position:absolute;inset:0;border:5px solid #df3834;box-shadow:inset 0 0 24px #df383466;pointer-events:none;z-index:7;animation:urgent-pulse .8s ease-in-out infinite alternate}
+@keyframes urgent-pulse{from{opacity:.35}to{opacity:1}}
+#intercept-feedback{position:absolute;z-index:8;top:95px;left:50%;transform:translateX(-50%);padding:8px 16px;background:#ffe64d;color:#9f271d;border:3px solid #263e39;font-size:26px;font-weight:bold;white-space:nowrap;pointer-events:none;animation:intercept-pop .25s ease-out}
+@keyframes intercept-pop{from{transform:translateX(-50%) scale(.6)}to{transform:translateX(-50%) scale(1)}}
+#result-dialog{padding:16px}#result-dialog h2{font-size:20px;margin:0 0 4px}#result-dialog p{margin:4px 0;line-height:1.4}#result-score{font-size:40px;line-height:1.2}#result-stars{font-size:24px;color:#ac6e11;letter-spacing:5px}#result-best{font-weight:bold;color:#24644b}#result-address{font-size:11px}#result-map{height:260px}#result-details{margin:8px 0}#result-details summary{padding:7px 10px}#result-list{font-size:12px}.result-legend{font-size:10px;gap:3px 10px}#next-round{padding:9px 18px}
+@media(max-width:700px){#result-map{height:180px}#result-dialog{padding:14px}#result-captured{font-size:11px}}
+@media(max-height:600px){#result-map{height:145px}#result-dialog h2{font-size:17px}#result-score{font-size:32px}#result-address{max-height:32px;overflow:hidden}}
+@media(prefers-reduced-motion:reduce){#world.urgent::after,#intercept-feedback{animation:none}}
 .back-link{text-align:center;margin:12px 0 0;font-size:12px}.back-link a{color:#6d735f}

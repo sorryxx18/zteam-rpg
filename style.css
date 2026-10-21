@@ -59,3 +59,4 @@ footer{flex:0 0 auto;justify-content:center;padding:5px 6px;white-space:nowrap}f
 .race-hud strong{font-size:21px;line-height:25px}
 .tools{top:48px;right:12px}
 .copyright{margin-left:10px;opacity:.75}
+.back-link{text-align:center;margin:12px 0 0;font-size:12px}.back-link a{color:#6d735f}

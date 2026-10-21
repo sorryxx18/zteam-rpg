@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRace,buildRoadGraph} from '../race.mjs';
+import {RULES,createRace,buildRoadGraph} from '../race.mjs';
+const speed=10*RULES.npcSpeedRatio;
 const away={x:-999,y:-999};
 function setup({source={x:40,y:6},roads=[{p:[0,0,80,0],w:8}],buildings=[],canStand=()=>true,water}={}){
- let now=0;const race=createRace({sites:[{n:'演練',addr:'測試',x:0,y:0}],water:water??[{n:'水源',k:'hydrant',...source}],stations:[{x:0,y:0}],roads,buildings,canStand,clock:()=>now,config:{npcCount:1,npcDelaySeconds:0}});
+ let now=0;const race=createRace({sites:[{n:'演練',addr:'測試',x:0,y:0}],water:water??[{n:'水源',k:'hydrant_above',...source}],stations:[{x:0,y:0}],roads,buildings,canStand,clock:()=>now,config:{npcCount:1,npcDelaySeconds:0}});
  race.start();return {race,at(time){const dt=time-now/1000;now=time*1000;return race.tick(dt,away);}};
 }
 test('8m road permits swept-radius-safe curb approach to source 6m from centre, with real travel and inclusive 3m arrival',()=>{
  const {race,at}=setup();let s=at(0);assert.equal(s.npcs[0].target,0);assert.equal(s.npcs[0].x,0);assert.equal(s.npcs[0].y,0);
  assert.equal(s.npcs[0].route.at(-1).x,40);assert.ok(Math.abs(s.npcs[0].route.at(-1).y-3)<1e-10);
- s=at(5);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.ok(Math.abs(s.npcs[0].y)<1e-8);assert.equal(s.npcs[0].construction,null);
- s=at(5.25);assert.ok(Math.abs(s.npcs[0].y-2)<1e-8);assert.equal(s.npcs[0].construction,null);
- s=at(5.375);assert.ok(Math.abs(s.npcs[0].y-3)<1e-8);assert.equal(s.npcs[0].construction.elapsed,0);assert.equal(s.water[0].owner,null);
- s=at(6.875);assert.equal(s.water[0].owner,'npc1');assert.ok(s.npcs[0].y+.32<=4);assert.equal(race.drainEvents().filter(e=>e.type==='stolen').length,1);
+ s=at(40/speed);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.ok(Math.abs(s.npcs[0].y)<1e-8);assert.equal(s.npcs[0].construction,null);
+ s=at(42/speed);assert.ok(Math.abs(s.npcs[0].y-2)<1e-8);assert.equal(s.npcs[0].construction,null);
+ s=at(43/speed);assert.ok(Math.abs(s.npcs[0].y-3)<1e-8);assert.equal(s.npcs[0].construction.elapsed,0);assert.equal(s.water[0].owner,null);
+ s=at(43/speed+1.5);assert.equal(s.water[0].owner,'npc1');assert.ok(s.npcs[0].y+.32<=4);assert.equal(race.drainEvents().filter(e=>e.type==='stolen').length,1);
 });
 for(const y of [10,6.7])test(`8m road rejects source at ${y}m: entire .32m radius must remain within road`,()=>{
  const {at}=setup({source:{x:40,y}});const s=at(100);assert.equal(s.water[0].owner,null);assert.equal(s.npcs[0].target,null);assert.equal(s.npcs[0].x,0);assert.equal(s.npcs[0].y,0);
@@ -29,7 +30,7 @@ test('curb endpoint must satisfy canStand',()=>{
  const {at}=setup({canStand:(x,y)=>y<2.9});assert.equal(at(100).water[0].owner,null);
 });
 test('polyline end uses bounded original road capsule, not an unlimited centreline extension',()=>{
- const legal=setup({source:{x:86,y:0}});let s=legal.at(10.375);assert.ok(Math.abs(s.npcs[0].x-83)<1e-8);assert.equal(s.npcs[0].construction.elapsed,0);assert.ok(s.npcs[0].x-80+.32<=4);assert.equal(legal.at(13).water[0].owner,'npc1');
+ const legal=setup({source:{x:86,y:0}});let s=legal.at(83/speed);assert.ok(Math.abs(s.npcs[0].x-83)<1e-8);assert.equal(s.npcs[0].construction.elapsed,0);assert.ok(s.npcs[0].x-80+.32<=4);assert.equal(legal.at(13).water[0].owner,'npc1');
  const illegal=setup({source:{x:90,y:0}});s=illegal.at(100);assert.equal(s.water[0].owner,null);assert.equal(s.npcs[0].target,null);
 });
 test('quantized graph vertices cannot expand the original road capsule',()=>{
@@ -41,9 +42,9 @@ test('centreline targets already within 3m retain their original route',()=>{
  const {at}=setup({source:{x:40,y:2.5}});assert.deepEqual(at(0).npcs[0].route,[{x:0,y:0},{x:40,y:0}]);
 });
 test('after curb construction and cooldown the next route integrates its return to centreline',()=>{
- const {at}=setup({water:[{n:'靠邊',k:'hydrant',x:40,y:6},{n:'下一點',k:'hydrant',x:70,y:0}]});
- let s=at(11.875);assert.equal(s.water[0].owner,'npc1');assert.equal(s.npcs[0].y,3);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);
- s=at(12);assert.ok(Math.abs(s.npcs[0].y-2)<1e-8);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.equal(s.npcs[0].construction,null);
- s=at(12.25);assert.ok(Math.abs(s.npcs[0].y)<1e-8);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.equal(s.water[1].owner,null);
+ const {at}=setup({water:[{n:'靠邊',k:'hydrant_above',x:40,y:6},{n:'下一點',k:'hydrant_above',x:70,y:0}]});
+ let s=at(43/speed+4.5);assert.equal(s.water[0].owner,'npc1');assert.equal(s.npcs[0].y,3);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);
+ s=at(44/speed+4.5);assert.ok(Math.abs(s.npcs[0].y-2)<1e-8);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.equal(s.npcs[0].construction,null);
+ s=at(46/speed+4.5);assert.ok(Math.abs(s.npcs[0].y)<1e-8);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.equal(s.water[1].owner,null);
  assert.equal(at(18).water[1].owner,'npc1');
 });

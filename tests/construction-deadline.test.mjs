@@ -15,9 +15,9 @@ const cases=[
 ];
 function run(actor,offset,step){
  let now=0;
- const start=294+offset,player=actor==='npc'?away:source;
+ const start=174+offset,player=actor==='npc'?away:source;
  const race=createRace({sites:[{n:'演練火場',addr:'虛構',x:0,y:0}],
-  water:[{n:'演練栓',k:'hydrant',...source}],
+  water:[{n:'演練栓',k:'hydrant_above',...source}],
   stations:actor==='player'?[]:[source],roads:[{p:[0,0,600,0],w:10}],
   clock:()=>now,config:{npcCount:actor==='player'?0:1,npcDelaySeconds:start}});
  race.start();now=start*1000;
@@ -26,8 +26,8 @@ function run(actor,offset,step){
  assert.equal(work.duration,6,'fixture must exercise six-second cap');
  assert.equal(work.hoses,13);
  const advance=t=>{const dt=t-time;time=t;now=t*1000;s=race.tick(dt,player);if(s.water[0].owner!==null&&firstClaimTime===null)firstClaimTime=time;};
- if(Number.isFinite(step))while(time+step<300)advance(time+step);
- advance(305); // Include a stalled frame crossing the deadline.
+ if(Number.isFinite(step))while(time+step<180)advance(time+step);
+ advance(185); // Include a stalled frame crossing the deadline.
  return {race,s,firstClaimTime};
 }
 for(const actor of ['player','npc','tie'])for(const c of cases)for(const step of frames){

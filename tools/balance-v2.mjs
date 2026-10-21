@@ -4,23 +4,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {createRace,buildRoadGraph,shortestRoute} from '../race.mjs';
+import {RULES,NPC_COUNTS,createRace,buildRoadGraph,shortestRoute} from '../race.mjs';
 import {circleIntersectsPoly,stepMove} from '../core.mjs';
 import {resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,missionCandidates} from '../missions.mjs';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 export function loadInputs(){
  const hashes=[];const read=p=>{const b=fs.readFileSync(path.join(ROOT,p));hashes.push({path:p,sha256:sha(b)});return JSON.parse(b);};
- const samples=read('tests/fixtures/v2-balance-samples.json'),sites=read('data/sites.json'),base=read('data/base.json'),keys=read('data/w/index.json');
+ const samples=read('tests/fixtures/v3-balance-samples.json'),sites=read('data/sites.json'),base=read('data/base.json'),keys=read('data/w/index.json');
  if(hashes.find(h=>h.path==='data/sites.json').sha256!==samples.sourceSitesSha256)throw Error('Fixed sample source SHA mismatch');
  if(samples.samples.length!==20||new Set(samples.samples.map(s=>s.siteIndex)).size!==20||new Set(samples.samples.map(s=>s.station)).size!==9)throw Error('Invalid fixed sample coverage');
  const cells=new Map(base.cells.map(k=>[k,read(`data/c/${k}.json`)]));
  const waters=new Map(keys.map(k=>[k,read(`data/w/${k}.json`)]));
- return {samples,sites,base,keys,cells,waters,hashes};
+ const pool=read('data/mission-pool.json');return {samples,sites,base,keys,cells,waters,hashes,pool};
 }
 export function prepareSample(input,sample){
  const {base,cells,sites,keys,waters}=input,site=sites[sample.siteIndex],station=base.stations.find(s=>s.name===sample.station);
- if(!site||!station||!missionCandidates(sites,station).includes(site))throw Error('Fixed site outside station mission policy');
+ if(!site||!station||!missionCandidates(sites,station,new Set(input.pool.eligible)).includes(site))throw Error('Fixed site outside station mission policy');
  if(sample.support!==['復興分隊','永吉分隊'].includes(sample.station))throw Error('Support flag mismatch');
  const selected=new Set();
  const neighbors=(x,y)=>{for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){const k=`${Math.floor(x/base.cs)+i}_${Math.floor(y/base.cs)+j}`;if(cells.has(k))selected.add(k);}};
@@ -28,11 +28,11 @@ export function prepareSample(input,sample){
  const fire=resolveFireSite(site,[...selected].flatMap(k=>cells.get(k).builds||[]));
  const rect=(l,b,r,t)=>{for(const k of base.cells){const [x,y]=k.split('_').map(Number);if((x+1)*base.cs>=l&&x*base.cs<=r&&(y+1)*base.cs>=b&&y*base.cs<=t)selected.add(k);}};
  rect(fire.x-500,fire.y-500,fire.x+500,fire.y+500);
- const nearest=[...base.stations].sort((a,b)=>dist(a,fire)-dist(b,fire)).slice(0,2);
+ const nearest=[...base.stations].sort((a,b)=>dist(a,fire)-dist(b,fire)).slice(0,NPC_COUNTS.normal);
  for(const s of nearest){const steps=Math.max(1,Math.ceil(dist(s,fire)/(base.cs/2)));for(let i=0;i<=steps;i++){const x=fire.x+(s.x-fire.x)*i/steps,y=fire.y+(s.y-fire.y)*i/steps;rect(x-base.cs,y-base.cs,x+base.cs,y+base.cs);}}
  neighbors(fire.x,fire.y);
  const geometry={roads:[...selected].flatMap(k=>cells.get(k).roads||[]),buildings:[...selected].flatMap(k=>cells.get(k).builds||[])};
- const water=selectObjectives(decodeWaterCells(waterCellKeys(fire,keys,base.cs,300).map(key=>({key,rows:waters.get(key)})),geometry.roads),fire,300,20).map(w=>({...w,sourceId:w.id}));
+ const water=selectObjectives(decodeWaterCells(waterCellKeys(fire,keys,base.cs,300).map(key=>({key,rows:waters.get(key)})),geometry.roads),fire,300,15).map(w=>({...w,sourceId:w.id}));
  return {fire,water,stations:base.stations,...geometry,cellKeys:[...selected]};
 }
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -115,19 +115,19 @@ export function summarize(rows){
 // Synthetic contract probes are explicitly NOT fixed-20 balance outcomes.
 export function checkModelReady(factory=createRace){
  const errors=[],require=(ok,msg)=>{if(!ok)throw Error(msg);};
- const make=(config={})=>{let now=0;const race=factory({sites:[{n:'synthetic fire',addr:'synthetic only',x:0,y:0}],water:[{n:'a',k:'hydrant',x:100,y:0},{n:'b',k:'tank',x:200,y:0}],stations:[{x:0,y:0},{x:0,y:0}],roads:[{p:[0,0,600,0]}],clock:()=>now,config:{difficulty:'normal',...config}});return {race,at:(seconds,p={x:-100,y:-100})=>{const dt=seconds-now/1000;now=seconds*1000;return race.tick(dt,p);}};};
+ const make=(config={})=>{let now=0;const race=factory({sites:[{n:'synthetic fire',addr:'synthetic only',x:0,y:0}],water:[{n:'a',k:'hydrant_above',x:100,y:0},{n:'b',k:'hydrant_under',x:200,y:0}],stations:[{x:0,y:0},{x:0,y:0}],roads:[{p:[0,0,600,0]}],clock:()=>now,config:{difficulty:'normal',...config}});return {race,at:(seconds,p={x:-100,y:-100})=>{const dt=seconds-now/1000;now=seconds*1000;return race.tick(dt,p);}};};
  try{
-  const {race,at}=make();let s=race.start(0);require(s.npcs.length===2,'normal must create two NPCs');require(s.construction===null&&s.totalHoses===0&&typeof race.cancelConstruction==='function','construction API absent');
+  const {race,at}=make();let s=race.start(0);require(s.npcs.length===NPC_COUNTS.normal,'normal NPC count mismatch');require(s.construction===null&&s.totalHoses===0&&typeof race.cancelConstruction==='function','construction API absent');
   require(at(0,{x:96.99,y:0}).construction===null,'capture outside 3m');
   s=at(.05,{x:97,y:0});require(s.construction?.hoses===5&&s.construction?.duration===2.5&&s.construction?.elapsed===0&&typeof s.construction?.contested==='boolean','construction shape/timing incorrect');
   require(at(2.5,{x:97,y:0}).captured===0,'premature player capture');s=at(2.55,{x:97,y:0});require(s.captured===1&&s.totalHoses===5,'successful hoses must count once');
   s=at(3,{x:197,y:0});require(s.construction?.hoses===10,'second construction missing');race.cancelConstruction();require(race.getState().construction===null,'cancel not clearing construction');
  }catch(e){errors.push('player: '+e.message);}
  try{
-  const {race,at}=make();race.start(0);let s=at(19.9);require(s.npcs.every(n=>!n.active),'NPC before 20 seconds');
-  let first=null,before=null;for(let i=400;i<900;i++){s=at(i*.05);const w=s.water.find(w=>w.owner!==null);if(w){first={time:i*.05,id:w.owner};before=s.npcs.find(n=>n.id===w.owner);break;}}
-  require(first&&first.time>=34.6,'NPC must travel at 8m/s and construct 2.5 seconds before capture');require(before.cooldownRemaining>=4.9,'NPC five-second cooldown missing');
-  s=at(first.time+4.8);const after=s.npcs.find(n=>n.id===first.id);require(dist(before,after)<1e-7&&after.cooldownRemaining>0,'NPC moves during cooldown');
+  const {race,at}=make();race.start(0);let s=at(9.9);require(s.npcs.every(n=>!n.active),'NPC before 10 seconds');
+  let first=null,before=null;for(let i=200;i<900;i++){s=at(i*.05);const w=s.water.find(w=>w.owner!==null);if(w){first={time:i*.05,id:w.owner};before=s.npcs.find(n=>n.id===w.owner);break;}}
+  require(first&&first.time>=10+97/(10*RULES.npcSpeedRatio)+2.5-1e-8,'NPC must consume real travel and construction before capture');require(before.cooldownRemaining>=2.9,'NPC three-second cooldown missing');
+  s=at(first.time+2.8);const after=s.npcs.find(n=>n.id===first.id);require(dist(before,after)<1e-7&&after.cooldownRemaining>0,'NPC moves during cooldown');
  }catch(e){errors.push('npc: '+e.message);}
  return {ready:errors.length===0,errors,kind:'synthetic contract probes; not balance data'};
 }
@@ -135,12 +135,12 @@ export function simulateSample(geometry,sample){
  const nav=createNavigator(geometry);let now=0;
  const race=createRace({sites:[geometry.fire],water:geometry.water,stations:geometry.stations,roads:geometry.roads,buildings:geometry.buildings,canStand:nav.canStand,clock:()=>now,random:()=>{throw Error('Random sampling prohibited');},config:{difficulty:'normal',targetRadius:300}});
  let state=race.start(0),player={...state.spawn},plan=null,targetId=null;
- if(state.npcs.length!==2)throw Error('Normal model did not supply two NPCs');
+ if(state.npcs.length!==NPC_COUNTS.normal)throw Error('Normal model NPC count mismatch');
  let movementSeconds=0,constructionSeconds=0,idleSeconds=0,movementMeters=0,collisionViolations=0,lastDecision=null;
  const failures=new Map(),trace=crypto.createHash('sha256'),captures=[];
  const movementAudit={validatedFrames:0,actualAxisLegs:0,acceptedStateMismatches:0,counterfactualFullFrameLRejections:0,firstCounterfactualRejection:null};
  // Decision changes only at arrival/claim/lost target, not by looking into future NPC state.
- for(let tick=1;tick<=6000;tick++){
+ for(let tick=1;tick<=3600;tick++){
   const dt=.05;let category='idle';
   if(state.construction){category='construction';plan=null;targetId=null;}
   else{
@@ -181,16 +181,16 @@ export function simulateSample(geometry,sample){
   trace.update(`${tick}:${player.x.toFixed(8)},${player.y.toFixed(8)}:${state.construction?.waterId??'-'}:${state.captured}\n`);
   for(const event of race.drainEvents())if(event.type==='capture'){const w=state.water.find(w=>w.id===event.waterId);if(!w||dist(player,w)>3+1e-8)throw Error('Capture outside source 3m');captures.push({timeSeconds:tick*.05,waterId:w.sourceId??w.id,distanceToSource:dist(player,w),hoses:Math.max(1,Math.ceil(dist(w,geometry.fire)/20))});}
  }
- if(state.status!=='finished'||state.remaining!==0)throw Error('300 second finish missing');
+ if(state.status!=='finished'||state.remaining!==0)throw Error('180 second finish missing');
  const expectedHoses=captures.reduce((n,c)=>n+c.hoses,0);if(state.totalHoses!==expectedHoses||captures.length!==state.captured)throw Error('Capture/hose accounting mismatch');
  const npc=state.water.filter(w=>w.owner!==null&&w.owner!=='player').length,unclaimed=state.water.filter(w=>w.owner===null).length;
- const row={...sample,status:'completed',total:state.total,captured:state.captured,npc,unclaimed,totalHoses:state.totalHoses,simulatedSeconds:300,movementSeconds:+movementSeconds.toFixed(9),constructionSeconds:+constructionSeconds.toFixed(9),idleSeconds:+idleSeconds.toFixed(9),movementMeters,collisionViolations,traceSha256:trace.digest('hex'),captures,unclaimedReasons:state.water.filter(w=>w.owner===null).map(w=>({waterId:w.sourceId??w.id,reason:failures.get(w.sourceId??w.id)||'300 second clock exhausted before capture'}))};
+ const row={...sample,status:'completed',total:state.total,captured:state.captured,npc,unclaimed,totalHoses:state.totalHoses,simulatedSeconds:180,movementSeconds:+movementSeconds.toFixed(9),constructionSeconds:+constructionSeconds.toFixed(9),idleSeconds:+idleSeconds.toFixed(9),movementMeters,collisionViolations,traceSha256:trace.digest('hex'),captures,unclaimedReasons:state.water.filter(w=>w.owner===null).map(w=>({waterId:w.sourceId??w.id,reason:failures.get(w.sourceId??w.id)||'180 second clock exhausted before capture'}))};
  row.movementAudit=movementAudit;summarize([row]);return row;
 }
 export function runBalance(){
  const input=loadInputs();const sources=['race.mjs','core.mjs','missions.mjs','game.js','tools/balance-v2.mjs'].map(p=>({path:p,sha256:sha(fs.readFileSync(path.join(ROOT,p)))}));
  const readiness=checkModelReady();
- const report={schema:'balance-v2-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:300,stepSeconds:.05,walkSpeed:5,runSpeed:10,selectedSpeed:10,collisionRadius:.32,npcSource:'base.stations; two nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/two-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
+ const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:180,stepSeconds:.05,walkSpeed:5,runSpeed:10,selectedSpeed:10,collisionRadius:.32,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
  if(readiness.ready){for(const sample of input.samples.samples){try{report.rows.push(simulateSample(prepareSample(input,sample),sample));}catch(e){report.rows.push({...sample,status:'blocked',error:e.message,captured:null,npc:null,unclaimed:null,totalHoses:null});}}report.status=report.rows.every(r=>r.status==='completed')?'completed':'incomplete';if(report.status==='completed')report.summary=summarize(report.rows);}
  for(const s of sources)if(sha(fs.readFileSync(path.join(ROOT,s.path)))!==s.sha256){report.status='invalid-model-changed-during-run';report.summary=null;}
  return report;

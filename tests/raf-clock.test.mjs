@@ -10,7 +10,7 @@ test('開局期間performance比RAF時間戳稍晚，下一幀仍不可產生負
  assert.ok(start>=0&&end>start);
  let wall=2050;const deltas=[],frames=[];
  const element={hidden:false,textContent:''},performance={now:()=>wall};
- const race=createRace({sites:[{n:'測試場所',addr:'測試地址',x:0,y:0}],water:[{k:'hydrant',n:'測試水源',x:100,y:0}],roads:[{p:[0,0,100,0]}],clock:performance.now});
+ const race=createRace({sites:[{n:'測試場所',addr:'測試地址',x:0,y:0}],water:[{k:'hydrant_above',n:'測試水源',x:100,y:0}],roads:[{p:[0,0,100,0]}],clock:performance.now});
  const context=vm.createContext({phase:'intro',introAt:0,previous:1990,race,siteIndex:0,performance,testRate:1,x:0,y:0,ready:false,nearbyKey:'',tense:false,$:()=>element,cellKey:()=>'',clearInput(){},message(){},musicAction(){},finishRound(){},update:dt=>deltas.push(dt),renderScene(){},requestAnimationFrame:fn=>frames.push(fn)});
  vm.runInContext(source.slice(start,end),context);
  vm.runInContext('loop(2000)',context);

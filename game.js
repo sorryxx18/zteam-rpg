@@ -1,8 +1,8 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6b2';
-import {createMusicPlayer} from './music.mjs?v=6b2';
-import {RULES,createRace} from './race.mjs?v=6b2';
-import {localTestRate} from './qa-clock.mjs?v=6b2';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6b2';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3a';
+import {createMusicPlayer} from './music.mjs?v=6v3a';
+import {RULES,NPC_COUNTS,createRace} from './race.mjs?v=6v3a';
+import {localTestRate} from './qa-clock.mjs?v=6v3a';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3a';
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
@@ -13,6 +13,7 @@ let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=fals
 const walkSpeed=5,runSpeed=10,metersPerUnit=1,collisionRadius=.32;
 const music=createMusicPlayer();
 let musicError=false;
+let eligibleMissions=new Set();
 let sites=[],water=[],waterKeys=[],race=null,siteIndex=-1,introAt=0,introSite=null,tense=false;
 const pinnedCells=new Set();
 let roadsVersion=0,roadsAt=-1,roadCache=[];
@@ -31,7 +32,7 @@ $('music-toggle').addEventListener('click',()=>{clearInput();const s=music.getSt
 function musicAction(action,arg){try{Promise.resolve(music[action](arg)).catch(()=>{musicError=true;updateMusicUI();});}catch(e){musicError=true;updateMusicUI();}}
 let phase='select',bootstrapped=false,difficulty='normal';
 let missionAt=0,tutorialStep=0;
-const tutorialText=['走路：左搖桿或方向鍵／WASD移動，按住跑鍵奔跑。','佈線佔水源：靠近目標水源3m內會佈線，完成才佔領；五分鐘盡量多佔。','小心消防車：20秒後出動，會搶走尚未佔領的水源。'];
+const tutorialText=['走路：左搖桿或方向鍵／WASD移動，按住跑鍵奔跑。','佈線佔消防栓：靠近目標消防栓3m內會佈線，完成才佔領；三分鐘盡量多佔。','小心消防車：10秒後出動，會搶走尚未佔領的消防栓。'];
 function beginIntro(){phase='intro';introAt=performance.now();$('intro').hidden=false;$('tutorial-card').hidden=true;$('mission-card').hidden=true;clearInput();}
 function finishMission(){
  if(phase!=='mission')return;$('mission-card').hidden=true;
@@ -74,7 +75,7 @@ async function goStation(name){
   const token=++arrival;ready=false;phase='loading';clearInput();station=name;message('沿著街角，準備出發…');
   try{
   failed.clear();
-  const candidates=missionCandidates(sites,base.stations.find(s=>s.name===name));
+  const candidates=missionCandidates(sites,base.stations.find(s=>s.name===name),eligibleMissions);
   if(!candidates.length)throw Error('所選分隊沒有可用場所，請換分隊或重試');
   let next=Math.floor(Math.random()*candidates.length);if(candidates[next]===sites[siteIndex]&&candidates.length>1)next=(next+1)%candidates.length;introSite=candidates[next];siteIndex=sites.indexOf(introSite);tense=false;race=null;
   // Previous round corridors may exceed the LRU budget. Release them BEFORE
@@ -85,18 +86,18 @@ async function goStation(name){
   // Pin the resolved fire surroundings and road corridors; retain the real geometry for NPC routing.
   const pinRect=(l,b,r,t)=>{for(const key of available){const [a,c]=key.split('_').map(Number);if((a+1)*base.cs>=l&&a*base.cs<=r&&(c+1)*base.cs>=b&&c*base.cs<=t)pinnedCells.add(key);}};
   pinRect(introSite.x-500,introSite.y-500,introSite.x+500,introSite.y+500);
-  const nearest=[...base.stations].sort((a,b)=>Math.hypot(a.x-introSite.x,a.y-introSite.y)-Math.hypot(b.x-introSite.x,b.y-introSite.y)).slice(0,difficulty==='hard'?3:2);
+  const nearest=[...base.stations].sort((a,b)=>Math.hypot(a.x-introSite.x,a.y-introSite.y)-Math.hypot(b.x-introSite.x,b.y-introSite.y)).slice(0,NPC_COUNTS[difficulty]);
   for(const s of nearest){const d=Math.hypot(s.x-introSite.x,s.y-introSite.y),steps=Math.max(1,Math.ceil(d/(base.cs/2)));for(let i=0;i<=steps;i++){const px=introSite.x+(s.x-introSite.x)*i/steps,py=introSite.y+(s.y-introSite.y)*i/steps;pinRect(px-base.cs,py-base.cs,px+base.cs,py+base.cs);}}
   await Promise.all([...pinnedCells].map(loadCell));if(token!==arrival)return;
   if(!cache.has(cellKey(introSite.x,introSite.y))||[...pinnedCells].some(k=>!cache.has(k)))throw Error('本局道路讀取失敗');
   await loadNearby(introSite.x,introSite.y);if(token!==arrival)return;
-  const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,300).map(async key=>{const r=await fetch(`./data/w/${key}.json`);if(!r.ok)throw Error('水源格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
-  const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,20);
-  if(!objectives.length)throw Error('火場300m內沒有可用水源，請重試其他題目');
+  const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,300).map(async key=>{const r=await fetch(`./data/w/${key}.json`,{cache:'no-cache'});if(!r.ok)throw Error('消防栓格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
+  const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,15);
+  if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
   race=createRace({sites:[introSite],water:objectives.map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:300,difficulty}});
-  $('mission-rules').textContent=`任務5分鐘，靠近水源3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${{easy:1,normal:2,hard:3}[difficulty]}台，20秒後出動。`;
+  $('mission-rules').textContent=`任務3分鐘，靠近消防栓3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${NPC_COUNTS[difficulty]}台，10秒後出動。`;
   $('mission-support').hidden=!['復興分隊','永吉分隊'].includes(station);$('mission-support').textContent='周邊支援';
-  x=introSite.x;y=introSite.y;direction='down';nearbyKey=cellKey(x,y);phase='mission';missionAt=performance.now();clearInput();$('start-screen').close();$('result-dialog').close();$('intro-address').textContent=`${introSite.n}｜${introSite.addr}`;$('intro').hidden=true;$('mission-detail').textContent=`${introSite.n}｜${introSite.addr}｜${introSite.use||introSite.u||'用途未提供'}`;$('mission-card').hidden=false;message('火警出題！記住地址，搶下周邊水源。',2000);canvas.focus({preventScroll:true});
+  x=introSite.x;y=introSite.y;direction='down';nearbyKey=cellKey(x,y);phase='mission';missionAt=performance.now();clearInput();$('start-screen').close();$('result-dialog').close();$('intro-address').textContent=`${introSite.n}｜${introSite.addr}`;$('intro').hidden=true;$('mission-detail').textContent=`${introSite.n}｜${introSite.addr}｜${introSite.use||introSite.u||'用途未提供'}`;$('mission-card').hidden=false;message('火警出題！記住地址，搶下周邊消防栓。',2000);canvas.focus({preventScroll:true});
   }catch(error){if(token!==arrival)return;phase='select';ready=false;race=null;introSite=null;clearInput();$('result-dialog').close();$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('intro').hidden=true;$('start-status').textContent=`${error.message}。請按開始重試。`;$('start-screen').showModal();message('本題暫時無法出勤，請重試。');}
 }
 function cachedGeometry(){const cells=[...cache.values()];return {roads:cells.flatMap(d=>d.roads||[]),builds:cells.flatMap(d=>d.builds||[])};}
@@ -235,7 +236,7 @@ function waterMark(c,source,px,py,size=1,result=false,index=null,target=true,nea
   if(target&&near&&!result){c.shadowColor='#ffe64d';c.shadowBlur=12;}
   c.fillStyle=owner?(isPlayer?'#238a50':'#69727a'):target?(Math.floor(performance.now()/500)%2?'#ffe64d':'#fff4a3'):'#d3ddda';
   c.strokeStyle='#263e39';c.lineWidth=1;c.beginPath();c.arc(0,0,10,0,Math.PI*2);c.fill();c.stroke();c.shadowBlur=0;
-  c.fillStyle=owner?'#fff':'#176986';c.font='bold 12px sans-serif';c.fillText(({hydrant:'H',tank:'▤',pool:'≋',natural:'≈',other:'◆',pond:'≋',river:'≈'})[source.k]||'◆',0,4);
+  c.fillStyle=owner?'#fff':'#176986';c.font='bold 12px sans-serif';c.fillText(({hydrant_above:'栓',hydrant_under:'▣'})[source.k]||'◆',0,4);
   if(owner){c.strokeStyle=isPlayer?'#20734b':'#5a6169';c.beginPath();c.moveTo(7,5);c.lineTo(7,-15);c.stroke();c.fillStyle=isPlayer?'#238a50':'#69727a';c.fillRect(7,-15,16,11);c.fillStyle='#fff';c.font='8px sans-serif';c.fillText(isPlayer?'犀':'車',15,-7);}
   if(result||near){c.font='11px sans-serif';c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3;const label=result?String(index+1):source.n;c.strokeText(label,0,24);c.fillText(label,0,24);}c.restore();
 }
@@ -271,7 +272,7 @@ function drawRace(c,scale,w,h,isMini=false){
   // to match ambient points (names and coordinates can legitimately repeat).
   const targets=new Map((snapshot?.water||[]).map(s=>[s.sourceId,s]));
   const npcTargets=new Set((snapshot?.npcs||[]).filter(n=>n.active&&n.target!==null&&!(n.cooldownRemaining>0)).map(n=>n.target));
-  const objectiveIds=new Set(selectObjectives(water,introSite,300,20).map(s=>s.id));
+  const objectiveIds=new Set(selectObjectives(water,introSite,300,15).map(s=>s.id));
   const sources=water.map(s=>({source:targets.get(s.id)||s,target:objectiveIds.has(s.id)}));
   // Ambient sources first, so a dim colocated point cannot cover a target flag.
   sources.sort((a,b)=>Number(a.target)-Number(b.target));
@@ -300,7 +301,7 @@ function drawResultMap(){
 function finishRound(){
   phase='result';ready=false;clearInput();$('overview-dialog').close();$('music-settings-dialog').close();$('intro').hidden=true;musicAction('setState','result');const s=race.getState();
   $('result-score').textContent=`${s.captured} / ${s.total}`;$('result-address').textContent=`${s.site.n}｜${s.site.addr}`;
-  $('result-list').textContent=s.water.map((a,i)=>`${i+1}. ${a.n}（${{hydrant:'消防栓',pond:'水池',river:'河川取水點'}[a.k]||a.k}）— ${a.owner==='player'?'犀牛綠旗・已佔領':a.owner?'灰旗・消防車已搶走':'閃黃・未找到'}`).join('\n');
+  $('result-list').textContent=s.water.map((a,i)=>`${i+1}. ${a.n}（${{hydrant_above:'地上消防栓',hydrant_under:'地下消防栓'}[a.k]||a.k}）— ${a.owner==='player'?'犀牛綠旗・已佔領':a.owner?'灰旗・消防車已搶走':'閃黃・未找到'}`).join('\n');
   updateConstructionUI();$('result-dialog').showModal();drawResultMap();
 }
 function updateConstructionUI(){
@@ -319,12 +320,12 @@ $('construction-cancel').addEventListener('click',()=>{
 function tickRace(dt){
   if(phase==='mission'&&performance.now()-missionAt>=3000)finishMission();
   if(phase==='intro'&&performance.now()-introAt>=2000){
-    try{race.start(0);const s=race.getState();x=s.spawn.x;y=s.spawn.y;nearbyKey=cellKey(x,y);phase='playing';ready=true;$('intro').hidden=true;message('出發！靠近水源 3m 內佈線，完成才佔領。',2600);}
+    try{race.start(0);const s=race.getState();x=s.spawn.x;y=s.spawn.y;nearbyKey=cellKey(x,y);phase='playing';ready=true;$('intro').hidden=true;message('出發！靠近消防栓 3m 內佈線，完成才佔領。',2600);}
     catch(error){phase='select';ready=false;race=null;introSite=null;clearInput();$('intro').hidden=true;$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('start-status').textContent=`出生失敗：${error.message}。請按開始重試。`;$('start-game').disabled=false;$('start-screen').showModal();message('本題暫時無法出勤，請重試。');return;}
   }
   if(phase!=='playing'||!race)return;
   race.tick(dt*testRate,{x,y});const s=race.getState();const seconds=Math.max(0,Math.ceil(s.remaining));$('countdown').textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;$('captured').textContent=`已佔 ${s.captured}/${s.total}`;
-  if(s.remaining<=60&&!tense){tense=true;musicAction('setState','tense');}
+  if(s.remaining<=30&&!tense){tense=true;musicAction('setState','tense');}
   for(const e of race.drainEvents()){if(e.type==='capture'){musicAction('cue','capture');message(`犀牛插旗！${e.waterName} +1`,2200);}if(e.type==='stolen'){musicAction('cue','lost');message(`${e.waterName}被搶走了`,2600);}if(e.type==='horn')musicAction('cue','horn');}
   if(s.status==='finished')finishRound();
 }
@@ -371,8 +372,9 @@ async function boot(){
   $('start-game').disabled=true;
   try{
     const response=await fetch('./data/base.json');if(!response.ok)throw Error('地圖尚未準備完成');base=await response.json();available=new Set(base.cells);
-    [sites,waterKeys]=await Promise.all(['sites','w/index'].map(async name=>{const r=await fetch(`./data/${name}.json`);if(!r.ok)throw Error('題目與水源尚未準備完成');return r.json();}));
+    [sites,waterKeys]=await Promise.all(['sites','w/index'].map(async name=>{const r=await fetch(`./data/${name}.json`,{cache:'no-cache'});if(!r.ok)throw Error('題目與消防栓尚未準備完成');return r.json();}));
 
+    const poolResponse=await fetch('./data/mission-pool.json',{cache:'no-cache'});if(!poolResponse.ok)throw Error('題庫尚未準備完成');eligibleMissions=new Set((await poolResponse.json()).eligible);
     await Promise.all(['male','female','rhino'].map(name=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>{images[name]=image;const c=document.querySelector(`[data-character="${name}"] canvas`),p=c.getContext('2d');p.imageSmoothingEnabled=false;const f=atlasFrame('down',false,0);p.drawImage(image,f.sx,f.sy,64,80,0,0,64,80);resolve();};image.onerror=()=>reject(Error('角色圖像尚未準備完成'));image.src=`./assets/${name}.png`;})));
     for(const s of base.stations){const option=document.createElement('option');option.value=s.name;option.textContent=s.name;$('start-station').append(option);}
     $('start-station').value=base.stations.find(s=>s.name.includes('莊敬'))?.name||base.stations[0].name;

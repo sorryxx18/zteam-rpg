@@ -14,7 +14,7 @@ from pathlib import Path
 
 LAT0, LON0 = 25.0355, 121.5630
 KX, KY = math.cos(math.radians(LAT0)) * 111320, 110540
-KINDS = ('hydrant', 'pond', 'river')
+KINDS = ('hydrant_above', 'hydrant_under')
 
 
 def number(value):
@@ -99,7 +99,7 @@ def demo(data):
             raise ValueError(f'{name}可用道路頂點不足')
         selected = [valid[i*len(valid)//15] for i in range(15)]
         for i, (wx, wy) in enumerate(selected):
-            water.append(dict(k=KINDS[i%3], n=f'演練／虛構水源：{name}-{i+1:02}', x=wx, y=wy))
+            water.append(dict(k=KINDS[i%len(KINDS)], n=f'演練／虛構水源：{name}-{i+1:02}', x=wx, y=wy))
     return sites, water
 
 

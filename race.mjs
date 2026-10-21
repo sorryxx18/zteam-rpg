@@ -1,21 +1,22 @@
 import {circleIntersectsPoly} from './core.mjs';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
-export const RULES=Object.freeze({roundSeconds:300,npcDelaySeconds:20,npcStaggerSeconds:5,spawnMode:'near-site',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:2,runSpeed:10,npcSpeedRatio:.8});
+export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
+export const RULES=Object.freeze({roundSeconds:180,npcDelaySeconds:10,npcStaggerSeconds:5,spawnMode:'near-site',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:1});
 const freeze = value => {if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
 export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=()=>performance.now(),random=Math.random,canStand=()=>true,config={}}){
  const rules={...RULES,...config};
- const counts={easy:1,normal:2,hard:3};
+ const counts=NPC_COUNTS;
  if(!Object.hasOwn(counts,rules.difficulty))throw new Error('難度無效');
  rules.npcCount=config.npcCount===undefined?counts[rules.difficulty]:config.npcCount;
  if(!Array.isArray(sites)||!sites.length)throw new Error('場所不可空白');
  for(const s of sites)if(!pointOK(s)||!s.n||!s.addr)throw new Error('場所名稱、地址或座標無效');
  if(!Array.isArray(water))throw new Error('水源格式無效');
- for(const w of water)if(!pointOK(w)||!w.n||!['hydrant','tank','pool','natural','other','pond','river'].includes(w.k))throw new Error('水源名稱、座標或類型無效');
+ for(const w of water)if(!pointOK(w)||!w.n||!['hydrant_above','hydrant_under'].includes(w.k))throw new Error('水源名稱、座標或類型無效');
  for(const s of stations)if(!pointOK(s))throw new Error('分隊座標無效');
  for(const key of ['roundSeconds','npcDelaySeconds','npcStaggerSeconds','spawnDistance','targetRadius','captureRadius','runSpeed','npcSpeedRatio'])if(!Number.isFinite(rules[key])||rules[key]<0)throw new Error('規則數值無效');
- if(!['near-site','nearest-station'].includes(rules.spawnMode)||!Number.isInteger(rules.npcCount)||rules.npcCount<0||rules.npcCount>3)throw new Error('規則模式無效');
+ if(!['near-site','nearest-station'].includes(rules.spawnMode)||!Number.isInteger(rules.npcCount)||rules.npcCount<0||rules.npcCount>4)throw new Error('規則模式無效');
  const graph=buildRoadGraph(roads,{buildings});let state={status:'idle',difficulty:rules.difficulty,site:null,spawn:null,remaining:rules.roundSeconds,captured:0,totalHoses:0,construction:null,total:0,water:[],npcs:[]},events=[],started=0,elapsed=0,meta=[];
- let cancelled=new Set(),geometryCache=new WeakMap();
+ let cancelled=new Set(),geometryCache=new WeakMap(),lastPlayer=null;
  // Private graph geometry only: never cache ownership, reservations or canStand.
  // Each NPC retains at most 20 queries for its exact current position.
  const geometry=(n,w)=>{
@@ -33,7 +34,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
  const event=(type,w=null,n=null)=>events.push({type,waterId:w?.id??null,waterName:w?.n??null,npcId:n?.id??null});
  const horn=(n,time)=>{const m=meta[state.npcs.indexOf(n)];if(time-m.horn>=8){m.horn=time;event('horn',null,n);}};
  const construction=w=>{const hoses=Math.max(1,Math.ceil(distance(w,state.site)/20));return {waterId:w.id,hoses,duration:Math.min(6,hoses*.5),elapsed:0,contested:false};};
- const claim=(w,owner,n=null,time=elapsed)=>{if(w.owner!==null)return;w.owner=owner;if(owner==='player'){state.captured++;state.totalHoses+=state.construction.hoses;event('capture',w);}else{n.cooldownRemaining=5;event('stolen',w,n);horn(n,time);}if(state.construction?.waterId===w.id)state.construction=null;for(const car of state.npcs)if(car.target===w.id){car.target=null;car.route=[];car.construction=null;}};
+ const claim=(w,owner,n=null,time=elapsed)=>{if(w.owner!==null)return;w.owner=owner;if(owner==='player'){state.captured++;state.totalHoses+=state.construction.hoses;event('capture',w);}else{n.cooldownRemaining=3;event('stolen',w,n);horn(n,time);}if(state.construction?.waterId===w.id)state.construction=null;for(const car of state.npcs)if(car.target===w.id){car.target=null;car.route=[];car.construction=null;}};
  const legalCurbSegment=(a,b,edge)=>{
   const clearance=edge.w/2-.32;
   if(clearance<0||distance(a,b)>clearance||!canStand(a.x,a.y)||!canStand(b.x,b.y))return false;
@@ -45,7 +46,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   return !buildings.some(o=>blockedSegment(a,b,o,.32));
  };
  const plan=n=>{if(n.target!==null&&state.water.find(w=>w.id===n.target)?.owner===null)return;
-  n.target=null;n.route=[];let best=Infinity;
+  n.target=null;n.route=[];let best=Infinity,bestPriority=Infinity;
   const reserved=new Set(state.npcs.filter(o=>o!==n).map(o=>o.target));
   for(const w of state.water){if(w.owner!==null||reserved.has(w.id))continue;const {route,start,end:projection}=geometry(n,w);if(!route)continue;
    // A car returning from the curb must physically retrace a safe road-width
@@ -57,7 +58,8 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
     if(!legalCurbSegment(q,end,projection.edge))continue;
     route.points.push(end);route.distance+=distance(q,end);
    }
-   if(route.distance>=best)continue;best=route.distance;n.target=w.id;n.route=route.points.map(p=>({...p}));}
+   const priority=pointOK(lastPlayer)&&distance(lastPlayer,w)<=60&&distance(n,w)<distance(lastPlayer,w)?0:1;
+   if(priority>bestPriority||priority===bestPriority&&route.distance>=best)continue;bestPriority=priority;best=route.distance;n.target=w.id;n.route=route.points.map(p=>({...p}));}
  };
  function start(index){
   if(index===undefined)index=Math.min(sites.length-1,Math.max(0,Math.floor(random()*sites.length)));
@@ -68,7 +70,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   if(rules.spawnMode==='nearest-station'){if(!near.length)throw new Error('沒有可用分隊');const s=near[0];if(canStand(s.x,s.y))spawn={x:s.x,y:s.y};}
   else {for(let i=0;i<72;i++){const angle=i*Math.PI/36,p={x:site.x+Math.cos(angle)*rules.spawnDistance,y:site.y+Math.sin(angle)*rules.spawnDistance};if(canStand(p.x,p.y)){spawn=p;break;}}}
   if(!spawn)throw new Error('找不到可站立的出生位置');
-  started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();
+  started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();lastPlayer=null;
   state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,totalHoses:0,construction:null,total:targets.length,water:targets,npcs:[]};
   for(let i=0;i<rules.npcCount&&near.length;i++){const s=near[i]??near[0],p=project(graph,s)?.q??s;state.npcs.push({id:`npc${i+1}`,x:p.x,y:p.y,direction:{x:0,y:0},active:false,target:null,route:[],construction:null,cooldownRemaining:0});meta.push({delay:rules.npcDelaySeconds+(i>=near.length?rules.npcStaggerSeconds:0),horn:-Infinity});}
   return snapshot();
@@ -86,6 +88,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
  }
  function tick(dt,player){
   if(state.status!=='playing')return snapshot();
+  lastPlayer=pointOK(player)?{x:player.x,y:player.y}:null;
   const now=Math.max(elapsed,(clock()-started)/1000);if(!Number.isFinite(now))throw new Error('時鐘無效');
   if(!Number.isFinite(dt)||dt<0)throw new Error('dt 秒數無效');
   const end=Math.min(now,rules.roundSeconds),begin=Math.min(end,Math.max(elapsed,now-dt));

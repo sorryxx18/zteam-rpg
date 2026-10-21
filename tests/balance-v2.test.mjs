@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
+import {createRace,NPC_COUNTS} from '../race.mjs';
 import {resolveFireSite} from '../missions.mjs';
 import * as balance from '../tools/balance-v2.mjs';
 const root=new URL('../',import.meta.url);
@@ -69,29 +70,29 @@ test('model readiness behavioral probe refuses incomplete construction and check
  const result=balance.checkModelReady();assert.equal(typeof result.ready,'boolean');assert.ok(Array.isArray(result.errors));
 });
 
-test('synthetic simulation spends the entire 300s, walks at most 10m/s and constructs while locked',()=>{
- const geometry={fire:{n:'synthetic',addr:'synthetic',x:0,y:0},water:[{n:'synthetic a',k:'hydrant',x:60,y:0},{n:'synthetic b',k:'tank',x:100,y:0}],stations:[{x:10000,y:0},{x:10000,y:0}],roads:[{p:[0,0,10000,0]}],buildings:[]};
+test('synthetic simulation spends the entire 180s, walks at most 10m/s and constructs while locked',()=>{
+ const geometry={fire:{n:'synthetic',addr:'synthetic',x:0,y:0},water:[{n:'synthetic a',k:'hydrant_above',x:60,y:0},{n:'synthetic b',k:'hydrant_under',x:100,y:0}],stations:[{x:10000,y:0},{x:10000,y:0}],roads:[{p:[0,0,10000,0]}],buildings:[]};
  const nav=balance.createNavigator(geometry);assert.equal(nav.clear({x:0,y:0},{x:.01,y:0}),true);
  const row=balance.simulateSample(geometry,{sample:1,station:'synthetic',support:false,siteIndex:0});
- assert.equal(row.simulatedSeconds,300);assert.equal(row.captured,2);assert.equal(row.totalHoses,8);
+ assert.equal(row.simulatedSeconds,180);assert.equal(row.captured,2);assert.equal(row.totalHoses,8);
  assert.ok(row.movementSeconds>=6);assert.ok(row.constructionSeconds>=4);assert.equal(row.collisionViolations,0);
- assert.ok(Math.abs(row.movementSeconds+row.constructionSeconds+row.idleSeconds-300)<1e-6);
+ assert.ok(Math.abs(row.movementSeconds+row.constructionSeconds+row.idleSeconds-180)<1e-6);
 });
 test('fixed public sample preserves 20 distinct sites, nine teams and support; authorized source hash',()=>{
- const fixture=JSON.parse(fs.readFileSync(new URL('tests/fixtures/v2-balance-samples.json',root)));
+ const fixture=JSON.parse(fs.readFileSync(new URL('tests/fixtures/v3-balance-samples.json',root)));
  assert.equal(fixture.samples.length,20);assert.equal(new Set(fixture.samples.map(s=>s.siteIndex)).size,20);
  assert.equal(new Set(fixture.samples.map(s=>s.station)).size,9);
  assert.ok(fixture.samples.some(s=>s.support));assert.ok(fixture.samples.every(s=>s.difficulty==='normal'));
  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(new URL('data/sites.json',root))).digest('hex'),fixture.sourceSitesSha256);
  const inputs=balance.loadInputs();const rows=fixture.samples.map(s=>({...s,total:balance.prepareSample(inputs,s).water.length}));
- assert.equal(rows[10].total,18);assert.ok(rows.every(s=>s.total<=20));
+ assert.equal(rows[10].total,14);assert.ok(rows.every(s=>s.total>=10&&s.total<=15));
 });
 test('fresh-round loaded geometry matches actual game loadNearby, pinned corridors and LRU',async()=>{
  const input=balance.loadInputs(),source=fs.readFileSync(new URL('game.js',root),'utf8');
  const loaders=source.slice(source.indexOf('async function loadCell('),source.indexOf('function releaseCapture('));
  const corridor=source.slice(source.indexOf('  await loadNearby(introSite.x,introSite.y);'),source.indexOf('  const cells=await Promise.all(waterCellKeys'));
  for(const sample of input.samples.samples){
-  const context={base:input.base,available:new Set(input.base.cells),cache:new Map(),pending:new Map(),failed:new Set(),pinnedCells:new Set(),roadsVersion:0,console,message:()=>{},token:1,arrival:1,difficulty:'normal',cellKey:(x,y)=>`${Math.floor(x/input.base.cs)}_${Math.floor(y/input.base.cs)}`,introSite:input.sites[sample.siteIndex],resolveFireSite,
+  const context={base:input.base,available:new Set(input.base.cells),cache:new Map(),pending:new Map(),failed:new Set(),pinnedCells:new Set(),roadsVersion:0,console,message:()=>{},token:1,arrival:1,difficulty:'normal',NPC_COUNTS,cellKey:(x,y)=>`${Math.floor(x/input.base.cs)}_${Math.floor(y/input.base.cs)}`,introSite:input.sites[sample.siteIndex],resolveFireSite,
    fetch:async url=>({ok:true,json:async()=>structuredClone(input.cells.get(url.replace('./data/c/','').replace('.json','')))}),
    cachedGeometry:()=>({builds:[...context.cache.values()].flatMap(c=>c.builds||[])})};
   await vm.runInNewContext(`${loaders}\n(async()=>{${corridor}})()`,context);
@@ -99,4 +100,15 @@ test('fresh-round loaded geometry matches actual game loadNearby, pinned corrido
   assert.deepEqual([...context.cache.keys()].sort(),[...prepared.cellKeys].sort(),`sample ${sample.sample} initial loaded cells`);
   assert.equal(context.introSite.x,prepared.fire.x);assert.equal(context.introSite.y,prepared.fire.y);
  }
+});
+
+test('fixed sample 10 can leave spawn using swept-safe corner detour, not idle forever',()=>{
+ const input=balance.loadInputs(),sample=input.samples.samples[9],geometry=balance.prepareSample(input,sample);
+ const nav=balance.createNavigator(geometry);
+ const race=createRace({sites:[geometry.fire],water:geometry.water,stations:geometry.stations,roads:geometry.roads,buildings:geometry.buildings,canStand:nav.canStand,clock:()=>0,config:{targetRadius:300}});
+ const spawn=race.start(0).spawn;
+ const plans=geometry.water.map(w=>nav.route(spawn,w)).filter(Boolean);assert.ok(plans.length>0);
+ const q=plans[0].points.find(p=>Math.hypot(p.x-spawn.x,p.y-spawn.y)>1e-7);assert.ok(q);
+ const audit={},next=balance.walkToward(spawn,q,.05,nav.canStand,10,nav.clear,audit);
+ assert.ok(Math.hypot(next.x-spawn.x,next.y-spawn.y)>0);assert.ok(audit.acceptedMatchesNext);assert.ok(audit.legs.every(l=>!l.accepted||l.sweptClear));
 });

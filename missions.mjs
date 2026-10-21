@@ -106,9 +106,9 @@ export function resolveDoorwayAccess(source, buildings, {radius=.32}={}) {
   return sensed?original():best;
 }
 
-const waterKinds={hydrant:'消防栓',tank:'蓄水池',pool:'游泳池',natural:'自然水源',other:'其他水源'};
+const waterKinds={hydrant_above:'地上消防栓',hydrant_under:'地下消防栓'};
 export function waterLabel(source, roads=[]) {
-  return nearestRoad(source.x,source.y,roads).name+(waterKinds[source.k]||waterKinds.other);
+  return nearestRoad(source.x,source.y,roads).name+(source.k==='hydrant_above'?'口':'旁')+(waterKinds[source.k]||'消防栓');
 }
 
 export function decodeWaterCells(cells, roads=[]) {
@@ -118,16 +118,16 @@ export function decodeWaterCells(cells, roads=[]) {
   }));
 }
 
-export function selectObjectives(water, site, radius=300, limit=20) {
+export function selectObjectives(water, site, radius=300, limit=15) {
   return water.map((source,index)=>({source,index,distance:Math.hypot(source.x-site.x,source.y-site.y)}))
     .filter(item=>item.distance<=radius)
     .sort((a,b)=>a.distance-b.distance || a.index-b.index)
     .slice(0,limit).map(item=>item.source);
 }
 
-export function missionCandidates(sites, station) {
+export function missionCandidates(sites, station, eligible=null) {
   const support = station.name === '復興分隊' || station.name === '永吉分隊';
-  return sites.filter(site => support
+  return sites.filter((site,index) => (!eligible || eligible.has(index)) && (support
     ? site.st !== station.name && Math.hypot(site.x-station.x, site.y-station.y) <= 2500
-    : site.st === station.name);
+    : site.st === station.name));
 }

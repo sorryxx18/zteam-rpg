@@ -39,11 +39,11 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   if(wall)box.fetch=async url=>{const response=await mapFetch(url);if(!url.includes('/c/'))return response;const data=await response.json();data.builds.push({p:[home.x-31,home.y-1,home.x-29,home.y-1,home.x-29,home.y+1,home.x-31,home.y+1]});return {ok:true,json:async()=>data};};
   const fixtureFetch=box.fetch;
   // Movement-only cases must not accidentally enter the new construction lock.
-  const waterFixture=[{k:'hydrant',n:'近處消防栓',x:home.x+1,y:home.y+(movementOnly?20:0)},{k:'tank',n:'遠處水池',x:home.x+250,y:home.y},{k:'natural',n:'河川取水點',x:home.x+150,y:home.y+150}];
+  const waterFixture=[{k:'hydrant_above',n:'近處消防栓',x:home.x+1,y:home.y+(movementOnly?20:0)},{k:'hydrant_under',n:'遠處水池',x:home.x+250,y:home.y},{k:'hydrant_under',n:'河川取水點',x:home.x+150,y:home.y+150}];
   const waterKey=`${Math.floor(home.x/500)}_${Math.floor(home.y/500)}`;
-  box.fetch=async url=>{if(url.endsWith('sites.json')){calls.push(url);return {ok:true,json:async()=>[fixtureSite,{...fixtureSite,n:'第二場所',x:home.x+10}]};}if(url.endsWith('/w/index.json')){calls.push(url);return {ok:true,json:async()=>[waterKey]};}if(url.includes('/w/')){calls.push(url);return {ok:true,json:async()=>waterFixture.map(w=>[w.x,w.y,w.k])};}if(url.endsWith('water.json')){calls.push(url);return {ok:true,json:async()=>waterFixture};}return fixtureFetch(url);};
+  box.fetch=async url=>{if(url.endsWith('mission-pool.json')){calls.push(url);return {ok:true,json:async()=>({eligible:[0,1]})};}if(url.endsWith('sites.json')){calls.push(url);return {ok:true,json:async()=>[fixtureSite,{...fixtureSite,n:'第二場所',x:home.x+10}]};}if(url.endsWith('/w/index.json')){calls.push(url);return {ok:true,json:async()=>[waterKey]};}if(url.includes('/w/')){calls.push(url);return {ok:true,json:async()=>waterFixture.map(w=>[w.x,w.y,w.k])};}if(url.endsWith('water.json')){calls.push(url);return {ok:true,json:async()=>waterFixture};}return fixtureFetch(url);};
   box.Math=Object.create(Math);box.Math.random=()=>initialSite/3;
-  if(realData){const waterKeys=JSON.parse(await readFile(new URL('data/w/index.json',root),'utf8'));const paths=['base','sites','w/index',...waterKeys.map(k=>'w/'+k),...base.cells.map(k=>'c/'+k)];const files=new Map(await Promise.all(paths.map(async p=>[`./data/${p}.json`,JSON.parse(await readFile(new URL(`data/${p}.json`,root),'utf8'))])));box.fetch=async url=>{calls.push(url);return {ok:files.has(url),json:async()=>structuredClone(files.get(url))};};}
+  if(realData){const waterKeys=JSON.parse(await readFile(new URL('data/w/index.json',root),'utf8'));const paths=['base','sites','mission-pool','w/index',...waterKeys.map(k=>'w/'+k),...base.cells.map(k=>'c/'+k)];const files=new Map(await Promise.all(paths.map(async p=>[`./data/${p}.json`,JSON.parse(await readFile(new URL(`data/${p}.json`,root),'utf8'))])));box.fetch=async url=>{calls.push(url);return {ok:files.has(url),json:async()=>structuredClone(files.get(url))};};}
   const advance=ms=>{now=ms;frames.shift()(ms);};
   box.createMusicPlayer=()=>{let muted=false,playing=false;return {play:id=>{calls.push('play:'+id);playing=!rejectMusic;return rejectMusic?Promise.reject(Error('gesture denied')):Promise.resolve();},setState:id=>calls.push('state:'+id),cue:id=>calls.push('cue:'+id),pause(){playing=false;},setMuted(v){muted=v;},getState:()=>({muted,playing,track:'explore',error:musicStateError?'resume denied':null})};};
   if(musicPlayer)box.createMusicPlayer=()=>musicPlayer;
@@ -76,16 +76,16 @@ test('B2 真模型施工首幀鎖住、取消原地不重啟，離開3m再回來
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});for(let i=0;i<9&&!get().race.construction;i++)h.advance(time+=100);
  assert.ok(get().race.construction);const hoses=get().race.construction.hoses;for(let i=0;i<65&&get().race.construction;i++)h.advance(time+=100);
  assert.equal(get().race.captured,1);assert.equal(get().race.totalHoses,hoses);assert.equal(h.elements.get('construction-panel').hidden,true);assert.equal(h.elements.get('construction-progress').value,0);assert.equal(get().moving,false);
- h.advance(300000);assert.equal(get().phase,'result');assert.equal(h.elements.get('construction-panel').hidden,true);
+ h.advance(180000);assert.equal(get().phase,'result');assert.equal(h.elements.get('construction-panel').hidden,true);
 });
 test('B2 三難度真正傳模型並對齊台數與非瞬插文案',async()=>{
- for(const [difficulty,count] of [['easy',1],['normal',2],['hard',3]]){const h=await harness({autoIntro:false});h.elements.get('start-difficulty').value=difficulty;await h.click('start-game');assert.equal(h.raceInputs[0].config.difficulty,difficulty);assert.match(h.elements.get('mission-rules').textContent,new RegExp(`${count}台`));assert.match(h.html,new RegExp(`value="${difficulty}"[^>]*>[^<]*${count}台`));assert.doesNotMatch(h.html,/3m 內自動插旗/);await h.skipPrelude();h.advance(2000);const s=h.window.__game.getState().race;assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);}
+ for(const [difficulty,count] of [['easy',2],['normal',3],['hard',4]]){const h=await harness({autoIntro:false});h.elements.get('start-difficulty').value=difficulty;await h.click('start-game');assert.equal(h.raceInputs[0].config.difficulty,difficulty);assert.match(h.elements.get('mission-rules').textContent,new RegExp(`${count}台`));assert.match(h.html,new RegExp(`value="${difficulty}"[^>]*>[^<]*${count}台`));assert.doesNotMatch(h.html,/3m 內自動插旗/);await h.skipPrelude();h.advance(2000);const s=h.window.__game.getState().race;assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);}
 });
-test('B2 真地格按難度載足近站走廊並pin住，hard第三車出生使用完整原道路投影',async()=>{
+test('B2 真地格按難度載足近站走廊並pin住，hard第四車出生使用完整原道路投影',async()=>{
  const h=await harness({realData:true,autoIntro:false});
  const base=JSON.parse(await readFile(new URL('data/base.json',root),'utf8'));
  const {buildRoadGraph,shortestRoute}=await import('../race.mjs');
- for(const [difficulty,name,count] of [['hard','復興分隊',3],['normal','復興分隊',2],['easy','舊莊分隊',1],['hard','舊莊分隊',3]]){
+ for(const [difficulty,name,count] of [['hard','復興分隊',4],['normal','復興分隊',3],['easy','舊莊分隊',2],['hard','舊莊分隊',4]]){
   if(h.raceInputs.length)await h.click('settings');
   h.elements.get('start-difficulty').value=difficulty;h.elements.get('start-station').value=name;await h.click('start-game');
   const s=h.window.__game.getState(),input=h.raceInputs.at(-1);assert.equal(s.phase,'mission',`${difficulty} ${name}`);
@@ -105,9 +105,9 @@ test('B2 真地格按難度載足近站走廊並pin住，hard第三車出生使�
   const loadedGraph=buildRoadGraph(input.roads,{buildings:input.buildings});
   const edgeKey=e=>[e.a.id,e.b.id].sort().join('|'),loadedEdges=new Set(loadedGraph.edges.map(edgeKey));
   assert.ok(graph.edges.length>0);for(const edge of graph.edges)assert.ok(loadedEdges.has(edgeKey(edge)),`original corridor edge ${edgeKey(edge)}`);
-  assert.equal(s.race.status,'idle');assert.equal(s.race.remaining,300,'loading must not start round clock');
+  assert.equal(s.race.status,'idle');assert.equal(s.race.remaining,180,'loading must not start round clock');
   await h.skipPrelude();h.advance(h.box.performance.now()+2000);
-  const playing=h.window.__game.getState();assert.equal(playing.phase,'playing');assert.equal(playing.race.remaining,300);assert.equal(playing.race.npcs.length,count);
+  const playing=h.window.__game.getState();assert.equal(playing.phase,'playing');assert.equal(playing.race.remaining,180);assert.equal(playing.race.npcs.length,count);
   for(let i=0;i<count;i++){const projected=shortestRoute(graph,nearest[i],nearest[i]);assert.ok(projected);const npc=playing.race.npcs[i],expected=projected.points[0];assert.ok(Math.hypot(npc.x-expected.x,npc.y-expected.y)<1e-8,`${difficulty} ${nearest[i].name}: original graph spawn projection`);}
  }
 });
@@ -144,7 +144,7 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,5);
- assert.ok(imports.every(path=>path.endsWith('?v=6b2')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3a')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -159,10 +159,10 @@ test('v2 無候選不抽假題，水源fetch失敗可原地重試而不留下卡
  const empty=await harness({autoIntro:false});empty.elements.get('start-station').value='信義分隊';await empty.click('start-game');
  assert.equal(empty.window.__game.getState().phase,'select');assert.match(empty.elements.get('start-status').textContent,/沒有.*場所/);assert.equal(empty.raceInputs.length,0);
  const h=await harness({autoIntro:false}),fetch=h.box.fetch;h.box.fetch=async url=>url.includes('/w/')?{ok:false}:fetch(url);
- await h.click('start-game');assert.equal(h.window.__game.getState().phase,'select');assert.match(h.elements.get('start-status').textContent,/水源.*重試/);assert.equal(h.elements.get('start-game').disabled,false);
+ await h.click('start-game');assert.equal(h.window.__game.getState().phase,'select');assert.match(h.elements.get('start-status').textContent,/消防栓.*重試/);assert.equal(h.elements.get('start-game').disabled,false);
  h.box.fetch=fetch;await h.click('start-game');assert.equal(h.window.__game.getState().phase,'mission');
 });
-test('v2 每題限定所屬分隊，以建物火場中心載入附近水格並只交付最近300m20目標',async()=>{
+test('v2 每題限定所屬分隊，以建物火場中心載入附近水格並只交付最近300m15目標',async()=>{
  const h=await harness({realData:true,autoIntro:false});await h.click('start-game');const s=h.window.__game.getState(),input=h.raceInputs[0];
  assert.equal(input.sites.length,1);assert.equal(input.sites[0].st,s.station);assert.equal(input.config.targetRadius,300);
  const mission=await import('../missions.mjs');const wanted=mission.waterCellKeys(input.sites[0],JSON.parse(await readFile(new URL('data/w/index.json',root))),500,300);
@@ -170,8 +170,8 @@ test('v2 每題限定所屬分隊，以建物火場中心載入附近水格並�
  const raw=JSON.parse(await readFile(new URL('data/sites.json',root))).find(a=>a.n===input.sites[0].n&&a.addr===input.sites[0].addr);
  const resolved=mission.resolveFireSite(raw,input.buildings);assert.equal(input.sites[0].x,resolved.x);assert.equal(input.sites[0].y,resolved.y);
  const rows=await Promise.all(wanted.map(async key=>({key,rows:JSON.parse(await readFile(new URL(`data/w/${key}.json`,root)))})));
- const expected=mission.selectObjectives(mission.decodeWaterCells(rows,input.roads),resolved,300,20);
- assert.deepEqual(Array.from(input.water,w=>[w.x,w.y,w.k,w.n]),expected.map(w=>[w.x,w.y,w.k,w.n]));assert.ok(input.water.length>0&&input.water.length<=20);
+ const expected=mission.selectObjectives(mission.decodeWaterCells(rows,input.roads),resolved,300,15);
+ assert.deepEqual(Array.from(input.water,w=>[w.x,w.y,w.k,w.n]),expected.map(w=>[w.x,w.y,w.k,w.n]));assert.ok(input.water.length>0&&input.water.length<=15);
  assert.ok(input.water.every(w=>Math.hypot(w.x-resolved.x,w.y-resolved.y)<=300));
  await h.skipPrelude();h.advance(2000);assert.equal(h.window.__game.getState().race.site.x,resolved.x);
 });
@@ -201,14 +201,14 @@ test('v2 無建物仍有像素火場，畫外箭頭留在螢幕內且距離用�
  const at=h.drawCalls.slice(0,h.drawCalls.indexOf(arrow)).findLast(v=>v[0]==='translate');assert.ok(at[1]>=12&&at[1]<=378&&at[2]>=12&&at[2]<=410);
  h.drawCalls.length=0;h.box.drawRace(c,1,390,422);assert.ok(h.drawCalls.some(v=>v[0]==='set'&&v[2]==='#ff6b21'));
 });
-test('v2 水源五類圖示與舊alias、目標閃黃旗幟、近處發光及遠處隱藏文字',async()=>{
+test('v2 消防栓兩類圖示、目標閃黃旗幟、近處發光及遠處隱藏文字',async()=>{
  const h=await harness(),c=h.elements.get('game').getContext('2d');
- for(const [k,icon]of [['hydrant','H'],['tank','▤'],['pool','≋'],['natural','≈'],['other','◆'],['pond','≋'],['river','≈']]){
+ for(const [k,icon]of [['hydrant_above','栓'],['hydrant_under','▣']]){
   h.drawCalls.length=0;h.box.waterMark(c,{k,n:'同名水源',owner:null},0,0);
   assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]===icon),k);
   assert.ok(h.drawCalls.some(v=>v[0]==='set'&&v[1]==='shadowBlur'&&v[2]>0));
  }
- const draw=(owner,target=true,near=true)=>{h.drawCalls.length=0;h.box.waterMark(c,{k:'tank',n:'同名水源',owner},0,0,1,false,null,target,near);return structuredClone(h.drawCalls);};
+ const draw=(owner,target=true,near=true)=>{h.drawCalls.length=0;h.box.waterMark(c,{k:'hydrant_under',n:'同名水源',owner},0,0,1,false,null,target,near);return structuredClone(h.drawCalls);};
  const a=draw(null);h.box.performance.now=()=>600;const b=draw(null);assert.notDeepEqual(a,b,'unowned target flashes yellow');
  for(const [owner,flag]of [['player','犀'],['npc1','車']])assert.ok(draw(owner).some(v=>v[0]==='fillText'&&v[1]===flag));
  assert.ok(draw(null,false).some(v=>v[0]==='set'&&v[1]==='globalAlpha'&&v[2]===.25));
@@ -216,20 +216,20 @@ test('v2 水源五類圖示與舊alias、目標閃黃旗幟、近處發光及遠
 });
 test('v2 非目標淡畫以穩定cell-row sourceId對照，重名重座標也不捕獲或入分母',async()=>{
  const h=await harness(),fetch=h.box.fetch,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');
- h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[...Array.from({length:21},()=>[home.x,home.y,'hydrant']),[home.x+400,home.y,'tank']]}:fetch(url);
+ h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[...Array.from({length:21},()=>[home.x,home.y,'hydrant_above']),[home.x+400,home.y,'hydrant_under']]}:fetch(url);
  await h.click('start-game');const s=h.window.__game.getState(),input=h.raceInputs[0];
- assert.equal(s.race.total,20);assert.equal(s.race.captured,0,'進3m開始施工，不再瞬間佔20點');assert.ok(s.race.construction);assert.equal(s.race.water.length,20);
+ assert.equal(s.race.total,15);assert.equal(s.race.captured,0,'進3m開始施工，不再瞬間佔20點');assert.ok(s.race.construction);assert.equal(s.race.water.length,15);
  assert.ok(input.water.every(w=>w.sourceId===w.id&&typeof w.id==='string'),'preserve cell-row identity before numeric race id overwrite');
- assert.equal(new Set(s.race.water.map(w=>w.sourceId)).size,20);assert.ok(s.race.water.every(w=>typeof w.id==='number'));
+ assert.equal(new Set(s.race.water.map(w=>w.sourceId)).size,15);assert.ok(s.race.water.every(w=>typeof w.id==='number'));
  const marks=[],mark=h.box.waterMark;h.box.waterMark=(...args)=>{marks.push(args);return mark(...args);};h.window.__game.renderScene();
- const non=marks.filter(a=>a[7]===false);assert.equal(non.length,1,'21st same-position row stays non-target; out-of-view point is culled');assert.ok(non[0][1].id.endsWith(':20'));
+ const non=marks.filter(a=>a[7]===false);assert.equal(non.length,6,'rows 16 through 21 stay non-target; out-of-view point is culled');assert.ok(non[0][1].id.endsWith(':15'));
  assert.equal(non[0][1].owner,undefined);
 });
 test('v2 boot只載base sites與水源索引，不載全域水源',async()=>{
- const h=await harness();assert.deepEqual(h.calls.filter(c=>c.startsWith('./data/')).sort(),['./data/base.json','./data/sites.json','./data/w/index.json']);
+ const h=await harness();assert.deepEqual(h.calls.filter(c=>c.startsWith('./data/')).sort(),['./data/base.json','./data/mission-pool.json','./data/sites.json','./data/w/index.json']);
 });
-test('v2 模型接受五種真水源並保留pond river舊fixture相容',()=>{
- for(const k of ['hydrant','tank','pool','natural','other','pond','river']){
+test('v3 模型只接受地上與地下消防栓',()=>{
+ for(const k of ['hydrant_above','hydrant_under','hydrant_under','hydrant_under','hydrant_under','hydrant_under','hydrant_under']){
   const r=createRaceForKinds({sites:[{n:'場所',addr:'地址',x:0,y:0}],water:[{n:'水源',x:1,y:0,k}]});assert.equal(r.start(0).water[0].k,k);
  }
 });
@@ -244,49 +244,49 @@ test('v2 重選中止前奏並清除卡片，再次出勤記住教學，storage�
 test('v2 出勤卡三秒與首次三步教學結束之前不啟動計時且鎖輸入',async()=>{
  const h=await harness({autoIntro:false}),get=()=>h.window.__game.getState();await h.click('start-game');
  assert.equal(get().phase,'mission');assert.match(h.elements.get('mission-detail').textContent,/測試場所.*測試路1號/);
- assert.match(h.elements.get('mission-rules').textContent,/5分鐘.*20秒/);
+ assert.match(h.elements.get('mission-rules').textContent,/3分鐘.*10秒/);
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});const x=get().x;
  h.advance(2999);assert.equal(get().phase,'mission');assert.equal(get().x,x);assert.equal(get().race.status,'idle');
  h.advance(3000);assert.equal(get().phase,'tutorial');
  for(let i=0;i<3;i++){assert.equal(get().tutorialStep,i);await h.click('tutorial-next');}
  assert.equal(h.storage.get('rhino-tutorial-v2'),'done');assert.equal(get().phase,'intro');
  h.advance(4999);assert.equal(get().phase,'intro');assert.equal(get().race.status,'idle');
- h.advance(5000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,300);assert.ok(get().race.npcs.every(n=>!n.active));
+ h.advance(5000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,180);assert.ok(get().race.npcs.every(n=>!n.active));
 });
 test('v2 難度預設普通且保存選角分隊選擇',async()=>{
   const h=await harness();assert.equal(h.window.__game.getState().difficulty,'normal');
   h.elements.get('start-difficulty').value='hard';await h.click('start-game');
   assert.equal(h.window.__game.getState().difficulty,'hard');
 });
-test('本機五倍速流程仍有真兩秒intro，48秒轉緊張、60秒結算；公開query維持300秒',async()=>{
+test('本機五倍速流程仍有真兩秒intro，30秒轉緊張、36秒結算；公開query維持180秒',async()=>{
   for(const [url,rate] of [['http://localhost:8000/?test=1',5],['https://preview.example/?test=1',1],['http://localhost:8000/',1]]){
     const h=await harness({location:new URL(url),autoIntro:false}),get=()=>h.window.__game.getState();
     const nativeNow=h.box.performance.now;
     await h.click('start-game');assert.equal(get().testRate,rate);await h.skipPrelude();
     h.advance(1999);assert.equal(get().phase,'intro');
-    h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,300);
-    h.advance(2000+239000/rate);assert.equal(get().race.remaining,61);assert.ok(!h.calls.includes('state:tense'));
-    h.advance(2000+240000/rate);assert.equal(get().race.remaining,60);assert.ok(h.calls.includes('state:tense'));
-    h.advance(2000+299000/rate);assert.equal(get().phase,'playing');
-    h.advance(2000+300000/rate);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
+    h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,180);
+    h.advance(2000+149000/rate);assert.equal(get().race.remaining,31);assert.ok(!h.calls.includes('state:tense'));
+    h.advance(2000+150000/rate);assert.equal(get().race.remaining,30);assert.ok(h.calls.includes('state:tense'));
+    h.advance(2000+179000/rate);assert.equal(get().phase,'playing');
+    h.advance(2000+180000/rate);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
     assert.equal(h.box.performance.now,nativeNow,'不覆寫全域時鐘');
-    assert.equal(h.box.performance.now(),2000+300000/rate,'牆鐘始終保持原始毫秒');
+    assert.equal(h.box.performance.now(),2000+180000/rate,'牆鐘始終保持原始毫秒');
     assert.deepEqual(Object.keys(h.window.__game).sort(),['getState','renderScene']);
   }
 });
-test('本機快轉NPC沿真實幾何與正常模型逐階一致，20秒出動、搶水源直到結果（桌機手機）',async()=>{
+test('本機快轉NPC沿真實幾何與正常模型逐階一致，10秒出動、搶水源直到結果（桌機手機）',async()=>{
   for(const viewport of [[1280,800],[390,844]]){
     const normal=await harness({realData:true,viewport,autoIntro:false});
     const fast=await harness({realData:true,viewport,autoIntro:false,location:new URL('http://127.0.0.1/?test=1')});
     for(const h of [normal,fast]){await h.click('start-game');await h.skipPrelude();h.advance(2000);}
-    for(const seconds of [19,20,21,40,80,160,240,299,300]){
+    for(const seconds of [9,10,11,40,80,120,160,179,180]){
       normal.advance(2000+seconds*1000);fast.advance(2000+seconds*1000/5);
       const a=normal.window.__game.getState(),b=fast.window.__game.getState();
       assert.deepEqual(b.race,a.race,`${viewport}: ${seconds} model seconds`);
       assert.equal(b.phase,a.phase);
-      if(seconds===19)assert.ok(b.race.npcs.every(n=>!n.active));
-      if(seconds===20)assert.ok(b.race.npcs.every(n=>n.active));
-      if(seconds===299)assert.ok(b.race.water.some(w=>w.owner?.startsWith('npc')),'真模型NPC確實佔領');
+      if(seconds===9)assert.ok(b.race.npcs.every(n=>!n.active));
+      if(seconds===10)assert.ok(b.race.npcs.every(n=>n.active));
+      if(seconds===179)assert.ok(b.race.water.some(w=>w.owner?.startsWith('npc')),'真模型NPC確實佔領');
       normal.drawCalls.length=fast.drawCalls.length=0;
     }
     assert.deepEqual(fast.calls.filter(c=>/^(state|cue|play):/.test(c)),normal.calls.filter(c=>/^(state|cue|play):/.test(c)),'音樂僅依相同模型狀態切換，不額外改速');
@@ -310,7 +310,7 @@ test('本機快轉只乘玩家speed，保留原始dt、250ms卡頓丟棄與15cm�
     h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});
     h.advance(3200);assert.deepEqual(moves.at(-1),{dt:.1,speed:50});
     if(wall)assert.ok(get().x<=start+.18);else assert.ok(Math.abs(get().x-start-7.5)<1e-8);
-    const x=get().x;h.advance(4000);assert.equal(get().x,x,'原始800ms卡頓不得追趕');assert.equal(get().race.remaining,290);
+    const x=get().x;h.advance(4000);assert.equal(get().x,x,'原始800ms卡頓不得追趕');assert.equal(get().race.remaining,170);
     assert.equal(get().walkSpeed,5);assert.equal(get().runSpeed,10);assert.equal(get().collisionRadius,.32);
   }
 });
@@ -321,19 +321,19 @@ test('只有本機啟用時持續明示本機測試×5，提示逾時仍保留�
     await h.click('start-game');assert.equal(text().includes('本機測試 ×5'),enabled);await h.skipPrelude();
     h.advance(2000);assert.equal(text().includes('本機測試 ×5'),enabled);
     h.timers.at(-1)();assert.equal(text(),enabled?'本機測試 ×5':'');
-    h.advance(enabled?62000:302000);assert.equal(text().includes('本機測試 ×5'),enabled);
+    h.advance(enabled?38000:182000);assert.equal(text().includes('本機測試 ×5'),enabled);
     assert.equal(h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,''),'僅供遊戲，非搶救圖資・© OpenStreetMap© 2026 Leif Huang. All rights reserved.');
   }
 });
-test('出勤卡與教學後顯示兩秒地址鏡頭，之後才開始完整五分鐘真時間',async()=>{
+test('出勤卡與教學後顯示兩秒地址鏡頭，之後才開始完整三分鐘真時間',async()=>{
   const h=await harness({autoIntro:false});await h.click('start-game');const get=()=>h.window.__game.getState();
   await h.skipPrelude();
   assert.equal(get().phase,'intro');assert.match(h.elements.get('intro-address').textContent,/測試路1號/);
   h.advance(1999);assert.equal(get().phase,'intro');
-  h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,300);
-  await h.click('overview-open');h.advance(242000);assert.equal(Math.ceil(get().race.remaining),60);
-  h.advance(302000);assert.equal(get().phase,'result');assert.equal(h.elements.get('result-dialog').open,true);
-  assert.equal(get().moving,false);assert.ok(h.elements.get('result-list').textContent.includes('測試路消防栓'));
+  h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,180);
+  await h.click('overview-open');h.advance(122000);assert.equal(Math.ceil(get().race.remaining),60);
+  h.advance(182000);assert.equal(get().phase,'result');assert.equal(h.elements.get('result-dialog').open,true);
+  assert.equal(get().moving,false);assert.ok(h.elements.get('result-list').textContent.includes('測試路口地上消防栓'));
 });
 
 test('開場與地圖dialog限制視窗高度且可捲動，手機橫式不強迫500px',async()=>{
@@ -369,7 +369,7 @@ test('真音樂模型結算自然結束或尚未播放時只切靜音，不誤�
   const player=createMusicPlayer({audioContextFactory:()=>ctx,document:new EventTarget(),storage:{getItem:()=>null,setItem(){}},fetch:async url=>({ok:true,arrayBuffer:async()=>{const bytes=wavs.get(String(url));return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);}})});
   const h=await harness({musicPlayer:player});h.window.__game.renderScene();
   assert.equal(h.elements.get('music-toggle').textContent,'靜音');
-  await h.click('start-game');h.advance(302000);await h.settle();
+  await h.click('start-game');h.advance(182000);await h.settle();
   assert.equal(player.getState().state,'result');assert.equal(sources.at(-1).loop,false);
   sources.at(-1).onended();h.window.__game.renderScene();
   assert.equal(player.getState().playing,false);assert.equal(player.getState().error,null);
@@ -541,7 +541,7 @@ test('設定不疊其他modal，到期先關設定再結算且再一題可繼續
   await h.click('start-game');await h.click('overview-open');await h.click('music-settings');assert.equal(h.elements.get('music-settings-dialog').open,false);
   await h.click('overview-close');await h.click('music-settings');assert.equal(h.elements.get('music-settings-dialog').open,true);
   const result=h.elements.get('result-dialog'),show=result.showModal;result.showModal=function(){assert.equal(h.elements.get('music-settings-dialog').open,false,'先關設定');show.call(this);};
-  h.advance(302000);assert.equal(h.window.__game.getState().phase,'result');assert.equal(result.open,true);
+  h.advance(182000);assert.equal(h.window.__game.getState().phase,'result');assert.equal(result.open,true);
   await h.click('music-settings');assert.equal(h.elements.get('music-settings-dialog').open,false);
   await h.click('next-round');assert.equal(h.window.__game.getState().phase,'mission');await h.skipPrelude();h.advance(304000);assert.equal(h.window.__game.getState().phase,'playing');
 });
@@ -600,13 +600,13 @@ test('整局道路走廊超過25格仍完整保留預載範圍',async()=>{
 });
 test('佔領提示音、緊張與結果音樂、完整地圖對照與新場所再一題',async()=>{
   const h=await harness({autoIntro:false});await h.click('start-game');await h.skipPrelude();h.advance(2000);assert.ok(!h.calls.includes('cue:capture'));h.advance(3000);assert.ok(h.calls.includes('cue:capture'));
-  h.advance(242000);assert.ok(h.calls.includes('state:tense'));
+  h.advance(152000);assert.ok(h.calls.includes('state:tense'));
   assert.ok(h.calls.includes('cue:lost'));assert.ok(h.calls.includes('cue:horn'));
-  h.advance(302000);assert.ok(h.calls.includes('state:result'));const old=h.window.__game.getState().race.site;
+  h.advance(182000);assert.ok(h.calls.includes('state:result'));const old=h.window.__game.getState().race.site;
   assert.match(h.elements.get('result-list').textContent,/犀牛綠旗/);assert.match(h.elements.get('result-list').textContent,/未找到/);
   assert.ok(h.drawCalls.some(a=>a[0]==='fillText'&&a[1]==='2'));
   await h.click('next-round');assert.equal(h.window.__game.getState().phase,'mission');await h.skipPrelude();h.advance(304000);
-  assert.notEqual(h.window.__game.getState().race.site.n,old.n);assert.equal(h.window.__game.getState().race.remaining,300);
+  assert.notEqual(h.window.__game.getState().race.site.n,old.n);assert.equal(h.window.__game.getState().race.remaining,180);
 });
 test('建立真競賽模型時傳入所有已載入地格的道路與建物幾何',async()=>{
   const h=await harness({realData:true});await h.click('start-game');
@@ -617,13 +617,22 @@ test('建立真競賽模型時傳入所有已載入地格的道路與建物幾�
   assert.deepEqual(polygons(Array.from(geometry.roads)),polygons(cells.flatMap(c=>c.roads||[])));
   assert.equal(h.window.__game.getState().phase,'playing');
 });
-test('真實三題資料與道路、建物碰撞完整整合至五分鐘結果（桌機及手機）',async()=>{
+test('真實三題資料與道路、建物碰撞完整整合至三分鐘結果（桌機及手機）',async()=>{
   for(const viewport of [[1280,800],[390,844]])for(let initialSite=0;initialSite<3;initialSite++){
     const h=await harness({realData:true,initialSite,viewport});await h.click('start-game');const get=()=>h.window.__game.getState();
     assert.equal(get().phase,'playing');assert.ok(get().race.total>=3);assert.ok(Math.abs(Math.hypot(get().x-get().race.site.x,get().y-get().race.site.y)-30)<1e-8);
-    for(let seconds=20;seconds<300;seconds+=20){h.drawCalls.length=0;h.advance(seconds*1000);assert.equal(get().phase,'playing');assert.ok(get().race.npcs.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));}
-    h.advance(300000);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
+    for(let seconds=20;seconds<180;seconds+=20){h.drawCalls.length=0;h.advance(seconds*1000);assert.equal(get().phase,'playing');assert.ok(get().race.npcs.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));}
+    h.advance(180000);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
     assert.equal(h.elements.get('result-list').textContent.split('\n').length,get().race.total);
     assert.ok(get().race.water.some(a=>a.owner?.startsWith('npc')),'實際道路可到水源，不是空轉消防車');
   }
+});
+
+test('v3 NPC destination frame flashes and excludes owned, inactive and cooling targets',async()=>{
+ const h=await harness();let active=true,cooldown=0,owned=false,time=0;const create=h.box.createRace;
+ h.box.createRace=options=>{const model=create(options),snapshot=s=>({...s,water:s.water.map((w,i)=>i===0?{...w,owner:owned?'player':null}:w),npcs:[{active,target:0,cooldownRemaining:cooldown,x:options.sites[0].x,y:options.sites[0].y,direction:{x:1,y:0}}]});return {...model,getState:()=>snapshot(model.getState()),tick:(...args)=>snapshot(model.tick(...args))};};
+ await h.click('start-game');const c=h.elements.get('game').getContext('2d');
+ const draw=()=>{h.advance(time+=10);h.drawCalls.length=0;h.box.drawRace(c,1,780,1000);return h.drawCalls.some(v=>v[0]==='set'&&v[1]==='strokeStyle'&&v[2]==='#e13232');};
+ const now=h.box.performance.now;h.box.performance.now=()=>0;assert.equal(draw(),true);h.box.performance.now=()=>600;assert.equal(draw(),false);
+ h.box.performance.now=()=>0;active=false;assert.equal(draw(),false);active=true;cooldown=3;assert.equal(draw(),false);cooldown=0;owned=true;assert.equal(draw(),false);h.box.performance.now=now;
 });

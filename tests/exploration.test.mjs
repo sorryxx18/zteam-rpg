@@ -26,7 +26,7 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   box.setTimeout=fn=>timers.push(fn);
   box.requestAnimationFrame=f=>frames.push(t=>{now=t+offset;f(now);});
   box.performance={now:()=>now};
-  Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'),await import('../incident.mjs'),await import('../ui.mjs'));
+  Object.assign(box,await import('../race.mjs'),await import('../missions.mjs'),await import('../incident.mjs'),await import('../ui.mjs'),await import('../commander.mjs'));
  // Free-space speed/input fixtures exclude scenery; crowd slowdown has its own integration case.
  if(movementOnly){const layout=box.createIncident;box.createIncident=o=>({...layout(o),people:[]});}
   // One-line synthetic road fixtures exercise legacy mechanics, not perimeter geography.
@@ -59,6 +59,9 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('第四段：高清指揮官1.5倍人物、只對他平滑、氣泡在名稱層下方',async()=>{
+ const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.advance(100);const s=h.window.__game.getState();assert.ok(s.commander?.visible);assert.equal(s.commander.heightCss,s.spriteCssHeight*1.5);const index=h.drawCalls.findIndex(c=>c[0]==='drawImage'&&c[1]?.url?.endsWith('commander_hd.png'));assert.ok(index>=0);const smoothing=h.drawCalls.slice(0,index).findLast(c=>c[0]==='set'&&c[1]==='imageSmoothingEnabled');assert.equal(smoothing[2],true);assert.ok(s.commander.lines.length<=2);assert.ok(s.commander.lines.every(s=>[...s].length<=14));const name=h.drawCalls.findIndex((c,i)=>i>index&&c[0]==='strokeText'&&c[1].includes('消防栓'));assert.ok(name>index);const bubble=h.drawCalls.findIndex(c=>c[0]==='fillText'&&c[1]===s.commander.lines[0]),lastArt=h.drawCalls.findLastIndex(c=>c[0]==='drawImage'&&c[1]?.url?.startsWith('./art/')&&!c[1].url.endsWith('commander_hd.png'));assert.ok(bubble>lastArt,'消防栓與車輛不可蓋住氣泡');
+});
 test('第三輪：首題30/45/60m皆受阻時，自動選同分隊下一場所，不要求玩家重試',async()=>{
  const h=await harness({blockedFirstSite:true});await h.click('start-game');const s=h.window.__game.getState();assert.equal(s.phase,'playing');assert.equal(s.race.site.n,'自動備援場所');assert.equal(s.station,s.spawnName);assert.equal(h.elements.get('start-screen').open,false);assert.ok(!h.elements.get('start-status').textContent.includes('出生失敗'));
 });
@@ -178,7 +181,7 @@ test('v3 真地格按難度保留原走廊與pin，所有車改在250～300m真�
 test('B2 NPC目標閃紅框只標未佔目標且mini同提示',async()=>{
  const h=await harness(),create=h.box.createRace;let active=true,owner=null;
  h.box.createRace=options=>{const model=create(options);return {...model,getState:()=>{const s=model.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?owner:w.owner})),npcs:[{id:'npc1',active,target:0,x:s.spawn?.x||0,y:s.spawn?.y||0,direction:{x:1,y:0}}]};}};};
- await h.click('start-game');const draw=mini=>{h.drawCalls.length=0;h.box.drawRace(h.elements.get('game').getContext('2d'),1,390,422,mini);return h.drawCalls.filter(c=>c[0]==='strokeRect');};
+ await h.click('start-game');const draw=mini=>{h.drawCalls.length=0;h.box.drawRace(h.elements.get('game').getContext('2d'),1,390,422,mini);return h.drawCalls.filter((c,i)=>c[0]==='strokeRect'&&h.drawCalls.slice(0,i).findLast(v=>v[0]==='set'&&v[1]==='strokeStyle')?.[2]==='#e13232');};
  assert.ok(draw(false).length>0);assert.ok(draw(true).length>0);h.box.performance.now=()=>600;assert.equal(draw(false).length,0,'紅框閃爍');h.box.performance.now=()=>0;active=false;assert.equal(draw(false).length,0);active=true;owner='player';assert.equal(draw(false).length,0);
 });
 test('v2 任務與教學隱藏舊intro，只有鏡頭前奏顯示且教學不承諾瞬插',async()=>{
@@ -207,8 +210,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
  }
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
- const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,7);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3g')),imports.join(', '));
+ const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3h')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

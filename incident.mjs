@@ -13,7 +13,7 @@ const vehicleRow=q=>Math.abs(q.dx)>=Math.abs(q.dy)?(q.dx<0?1:2):(q.dy>0?3:0);
 export const crowdCount=seconds=>Math.min(15,6+Math.floor(Math.max(0,seconds)/45)*3);
 export const crowdSpeedFactor=(scene,seconds,player)=>scene?.people.slice(0,crowdCount(seconds)).some(p=>dist(p,player)<=1.5)?.6:1;
 function projection(q,a,b){const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((q.x-a.x)*dx+(q.y-a.y)*dy)/(dx*dx+dy*dy||1)));return {x:a.x+dx*t,y:a.y+dy*t,t};}
-export function createIncident({site,roads=[],canStand=()=>true}){
+export function createIncident({site,roads=[],water=[],canStand=()=>true}){
  const p=site.building?.p,centre=p?{x:p.filter((_,i)=>i%2===0).reduce((a,b)=>a+b,0)/(p.length/2),y:p.filter((_,i)=>i%2===1).reduce((a,b)=>a+b,0)/(p.length/2)}:{x:site.x,y:site.y};
  const boundaryDistance=q=>{if(!p)return dist(q,centre);if(circleIntersectsPoly(q.x,q.y,0,p))return 0;let d=Infinity;for(let i=0,j=p.length-2;i<p.length;j=i,i+=2)d=Math.min(d,dist(q,projection(q,{x:p[j],y:p[j+1]},{x:p[i],y:p[i+1]})));return d;};
  const candidates=[],add=q=>{const d=boundaryDistance(q);if(d>=8-1e-8&&d<=25+1e-8&&canStand(q.x,q.y))candidates.push(q);};
@@ -24,8 +24,10 @@ export function createIncident({site,roads=[],canStand=()=>true}){
  const vehicles=[];
  for(const kind of ['fire_engine','fire_engine','ladder_truck','ambulance','police_car']){const row=q=>kind==='fire_engine'?vehicleRow(q):kind==='ladder_truck'?0:Number(Math.abs(q.dy)>Math.abs(q.dx)),size=q=>vehicleDimensions(kind,row(q)),angle=vehicles.length*2*Math.PI/5,angleGap=q=>Math.abs(Math.atan2(Math.sin(Math.atan2(q.y-centre.y,q.x-centre.x)-angle),Math.cos(Math.atan2(q.y-centre.y,q.x-centre.x)-angle)));const available=candidates.filter(q=>vehicles.every(v=>{const a=size(q),b=vehicleDimensions(v.kind,v.row);return dist(q,v)>=Math.hypot(a.width,a.height)/2+Math.hypot(b.width,b.height)/2+Math.max(a.length,b.length)/2;}));available.sort((a,b)=>Number(b.onRoad)-Number(a.onRoad)||angleGap(a)-angleGap(b)||dist(a,centre)-dist(b,centre));if(available[0])vehicles.push({...available[0],kind,row:row(available[0])});}
  const front=[...candidates].sort((a,b)=>Number(b.onRoad)-Number(a.onRoad)||dist(a,centre)-dist(b,centre))[0];
- const cordon=front?{a:{x:front.x-front.dx*12,y:front.y-front.dy*12},b:{x:front.x+front.dx*12,y:front.y+front.dy*12}}:null,people=[];
+ const commander=candidates.filter(q=>q.onRoad&&boundaryDistance(q)>=10&&boundaryDistance(q)<=15&&water.every(w=>dist(q,w)>=5)).sort((a,b)=>dist(a,front||centre)-dist(b,front||centre))[0]??null;
+ const commanderDistance=commander?dist(commander,centre):1,cordonFront=commander?{...commander,x:commander.x+2*(commander.x-centre.x)/commanderDistance,y:commander.y+2*(commander.y-centre.y)/commanderDistance}:front;
+ const cordon=cordonFront?{a:{x:cordonFront.x-cordonFront.dx*12,y:cordonFront.y-cordonFront.dy*12},b:{x:cordonFront.x+cordonFront.dx*12,y:cordonFront.y+cordonFront.dy*12}}:null,people=[];
  if(front){const d=dist(front,centre)||1,nx=(front.x-centre.x)/d,ny=(front.y-centre.y)/d;for(let i=0;i<80&&people.length<15;i++){const along=(i%5-2)*5,gap=6+Math.floor(i/5)*4,q={x:front.x+front.dx*along+nx*gap,y:front.y+front.dy*along+ny*gap};if(canStand(q.x,q.y)&&!people.some(v=>dist(q,v)<2))people.push({...q,variant:people.length%4,offset:(people.length*1.73)%3,speed:2.6+(people.length%4)*.17});}}
  const fires=p?Array.from({length:4},(_,i)=>{const a=Math.floor(i*(p.length/2)/4)*2,b=(a+2)%p.length;return {x:(p[a]+p[b])/2,y:(p[a+1]+p[b+1])/2};}):[];
- return {centre,vehicles,cordon,people,fires};
+ return {centre,vehicles,cordon,people,fires,commander};
 }

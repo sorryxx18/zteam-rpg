@@ -10,5 +10,6 @@ test('Pages公開目錄包含玩法模型與既有靜態資料，不遺漏新模
   assert.match(workflow,/cp -R assets data art _site\//);
   assert.match(workflow,/cp [^\n]*\bincident\.mjs\b[^\n]*_site\//);
   assert.match(workflow,/cp [^\n]*\bui\.mjs\b[^\n]*_site\//);
+  assert.match(workflow,/cp [^\n]*\bcommander\.mjs\b[^\n]*_site\//,'指揮官模組必須部署');
   assert.match(workflow,/node --test tests\/\*\.test\.mjs/);
 });

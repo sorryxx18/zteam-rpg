@@ -1,12 +1,13 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3g';
-import {createMusicPlayer} from './music.mjs?v=6v3g';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3g';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v3g';
-import {localTestRate} from './qa-clock.mjs?v=6v3g';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3g';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v3g';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3h';
+import {createMusicPlayer} from './music.mjs?v=6v3h';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3h';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v3h';
+import {localTestRate} from './qa-clock.mjs?v=6v3h';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3h';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v3h';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v3h';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
@@ -18,6 +19,7 @@ const music=createMusicPlayer();
 let musicError=false;
 let eligibleMissions=new Set(),captureEffects=[],interceptTimer;
 let hydrantLabels=[];
+let commanderDialogue=null,commanderRender={visible:false,bubble:'',lines:[]};
 let incident=null,borrowAt=-Infinity,crowdFactor=1,renderedSprites=0;
 let sites=[],water=[],waterKeys=[],race=null,siteIndex=-1,introAt=0,introSite=null,tense=false;
 const pinnedCells=new Set();
@@ -77,7 +79,7 @@ $('music-settings-close').addEventListener('click',()=>{clearInput();$('music-se
 $('music-settings-dialog').addEventListener('close',()=>{clearInput();if(ready&&!inputModalOpen())canvas.focus({preventScroll:true});});
 async function goStation(name,fallbackIndex=null,tried=0){
   if(!sites.length)return;
-  const token=++arrival;ready=false;phase='loading';notices.clear();clearInput();station=name;message('沿著街角，準備出發…');
+  const token=++arrival;ready=false;phase='loading';notices.clear();commanderDialogue=null;clearInput();station=name;message('沿著街角，準備出發…');
   try{
   failed.clear();
   const candidates=missionCandidates(sites,base.stations.find(s=>s.name===name),eligibleMissions);
@@ -100,7 +102,7 @@ async function goStation(name,fallbackIndex=null,tried=0){
   const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,500).map(async key=>{const r=await fetch(`./data/w/${key}.json`,{cache:'no-cache'});if(!r.ok)throw Error('消防栓格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
   const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,10);
   if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
-  incident=createIncident({site:introSite,roads:geometry.roads,canStand:walkable});borrowAt=-Infinity;
+  incident=createIncident({site:introSite,roads:geometry.roads,water,canStand:walkable});commanderDialogue=createCommanderDialogue(introSite.n);borrowAt=-Infinity;
   race=createRace({sites:[introSite],water:selectObjectives(water,introSite,500,water.length).map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:500,waves:true,difficulty,npcSpawnMode:'perimeter'}});
   $('mission-rules').textContent=`任務3分鐘，靠近消防栓3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${NPC_COUNTS[difficulty]}台，5秒後出動。`;
   $('mission-support').hidden=!['復興分隊','永吉分隊'].includes(station);$('mission-support').textContent='周邊支援';
@@ -260,6 +262,18 @@ function drawHydrantNames(c,scale,w,h){
  for(const source of sources){const a=w/2+(source.x-x)*scale,b=h/2-(source.y-y)*scale,distance=Math.hypot(source.x-x,source.y-y);if(distance>30||a<-30||a>w+30||b<-30||b>h+30)continue;candidates.push({name:source.n,distance,x:a,y:b+20*ratio,textY:b+24*ratio,width:c.measureText(source.n).width+6*ratio,height:16*ratio});}
  hydrantLabels=selectHydrantLabels(candidates);for(const q of hydrantLabels){c.strokeText(q.name,q.x,q.textY);c.fillText(q.name,q.x,q.textY);}c.restore();
 }
+function drawCommander(c,scale,w,h,bubbleOnly=false){
+ commanderRender={visible:false,bubble:'',lines:[]};const q=incident?.commander,image=images.commander_hd;if(!q||!image)return false;
+ const a=w/2+(q.x-x)*scale,b=h/2-(q.y-y)*scale,ratio=w/canvas.getBoundingClientRect().width,height=spriteCssHeight*1.5*ratio,sw=height*94/200;
+ if(a<0||a>w||b<0||b>h)return false;
+ c.save();const smoothing=c.imageSmoothingEnabled;if(!bubbleOnly){c.imageSmoothingEnabled=true;c.drawImage(image,a-sw/2,b-height,sw,height);c.imageSmoothingEnabled=smoothing;}
+ const bubble=phase==='playing'?commanderDialogue?.text(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))||'':'',lines=commanderBubbleLines(bubble);
+ if(bubbleOnly&&lines.length){
+  const bw=(Math.max(...lines.map(s=>[...s].length))*13+16)*ratio,bh=(lines.length*17+14)*ratio,bx=Math.max(4*ratio,Math.min(w-bw-4*ratio,a-bw/2)),by=Math.max(4*ratio,b-height-bh-12*ratio),tail=Math.max(bx+8*ratio,Math.min(bx+bw-8*ratio,a));
+  c.fillStyle='#fff';c.strokeStyle='#111';c.lineWidth=2*ratio;c.fillRect(bx,by,bw,bh);c.strokeRect(bx,by,bw,bh);c.beginPath();c.moveTo(tail-5*ratio,by+bh);c.lineTo(a,b-height-3*ratio);c.lineTo(tail+5*ratio,by+bh);c.closePath();c.fill();c.stroke();c.fillStyle='#111';c.font=`${13*ratio}px sans-serif`;c.textAlign='left';lines.forEach((line,i)=>c.fillText(line,bx+8*ratio,by+(20+i*17)*ratio));
+ }
+ c.restore();commanderRender={visible:true,heightCss:spriteCssHeight*1.5,screenX:a,screenY:b,bubble,lines,fontCss:13};return true;
+}
 function drawFire(c,fx,fy,ratio,isMini,frame){
   c.save();c.translate(fx,fy);c.scale(isMini?1:ratio,isMini?1:ratio);
   if(!isMini){c.fillStyle='#252525cc';for(let i=0;i<4;i++){const rise=(frame*4+i*15)%60;c.fillRect(-20+i*9+(frame%3)*2,-44-rise,18+i*3,16+i*3);}}
@@ -283,8 +297,9 @@ function drawRace(c,scale,w,h,isMini=false){
   const parked=isMini?[]:visibleWater.filter(v=>v.owner&&v.owner!=='player').map(v=>{const q=screenVehicle('fire_engine',2,light,v);return {...q,x:q.x+q.width/2+18*ratio+ratio};});
   const sceneVehicles=isMini?[]:(incident?.vehicles||[]).map(v=>screenVehicle(v.kind,v.row,v.kind==='ladder_truck'?0:light,v));
   const obstacles=isMini?[]:[{x:fx,y:fy,width:20*ratio,height:24*ratio,length:0},...visibleWater.map(v=>({x:px(v.x),y:py(v.y)+6*ratio,width:34*ratio,height:52*ratio,length:0})),...activeNPC.map(n=>screenVehicle('fire_engine',truckRow({dx:n.direction.x,dy:n.direction.y}),0,n))];
+  if(!isMini&&incident?.commander){const q=incident.commander,sh=spriteCssHeight*1.5*ratio;obstacles.push({x:px(q.x),y:py(q.y)-sh/2,width:sh*94/200,height:sh,length:0});}
   const placed=isMini?[]:layoutVehicleSprites([...sceneVehicles,...parked],obstacles);
-  let sprites=0,spriteLimit=Math.max(0,59-visibleWater.length-parked.length-activeNPC.length);const paint=(name,row,col,a,b,height)=>{const sw=height*ART[name][0]/ART[name][1];if(sprites>=spriteLimit||a+sw/2<0||a-sw/2>w||b<0||b-height>h)return;if(sprite(c,name,row,col,a,b,height))sprites++;};
+  let sprites=0,spriteLimit=Math.max(0,59-visibleWater.length-parked.length-activeNPC.length-(incident?.commander?1:0));const paint=(name,row,col,a,b,height)=>{const sw=height*ART[name][0]/ART[name][1];if(sprites>=spriteLimit||a+sw/2<0||a-sw/2>w||b<0||b-height>h)return;if(sprite(c,name,row,col,a,b,height))sprites++;};
   const vehicle=v=>paint(v.kind,v.row,v.col,v.x,v.y+v.height/2,v.height);
   const elapsed=snapshot?RULES.roundSeconds-snapshot.remaining:0;
   if(isMini)drawFire(c,fx,fy,ratio,true,frame);
@@ -295,6 +310,7 @@ function drawRace(c,scale,w,h,isMini=false){
     paint('fire_big',0,frame%4,px(incident.centre.x),py(incident.centre.y),130*ratio);
     for(const fire of incident.fires)paint('fire_small',0,frame%4,px(fire.x),py(fire.y),45*ratio);
   }
+  if(!isMini&&drawCommander(c,scale,w,h))sprites++;
   if(!isMini){
     c.font=`bold ${14*ratio}px sans-serif`;c.textAlign='center';c.fillStyle='#c52e24';
     if(fx<0||fx>w||fy<0||fy>h){
@@ -329,7 +345,7 @@ function drawRace(c,scale,w,h,isMini=false){
   }
   spriteLimit=59;for(const npc of snapshot?.npcs||[]){if(!npc.active)continue;const a=px(npc.x),b=py(npc.y);if(isMini){c.fillStyle='#e13232';c.beginPath();c.arc(a,b,3,0,Math.PI*2);c.fill();continue;}c.save();c.translate(a,b);c.rotate(Math.atan2(-npc.direction.y,npc.direction.x));c.scale(ratio,ratio);
     c.restore();vehicle(screenVehicle('fire_engine',truckRow({dx:npc.direction.x,dy:npc.direction.y}),light,npc));
-  }if(!isMini)renderedSprites=sprites;c.restore();
+  }if(!isMini){drawCommander(c,scale,w,h,true);renderedSprites=sprites;}c.restore();
 }
 function drawResultMap(){
   const s=race?.getState();if(!s)return;const map=$('result-map'),w=Math.max(280,Math.round(map.getBoundingClientRect().width)),h=Math.max(140,Math.round(map.getBoundingClientRect().height));
@@ -369,7 +385,7 @@ function updateConstructionUI(){
   if(c)clearInput();
 }
 $('construction-cancel').addEventListener('click',()=>{
-  clearInput();if(phase==='playing'&&race?.getState().construction)race.cancelConstruction();
+  clearInput();if(phase==='playing'&&race?.getState().construction){commanderDialogue?.enqueue('cancel',RULES.roundSeconds-race.getState().remaining);race.cancelConstruction();}
   updateConstructionUI();if(ready&&!inputModalOpen())canvas.focus({preventScroll:true});
 });
 function tickRace(dt){
@@ -381,7 +397,8 @@ function tickRace(dt){
   if(phase!=='playing'||!race)return;
   race.tick(dt*testRate,{x,y});const s=race.getState();const seconds=Math.max(0,Math.ceil(s.remaining));$('countdown').textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;const versus=competition(s.water);$('captured').textContent=`你 ${versus.player} ： 消防車 ${versus.npc}`;
   if(s.remaining<=30&&!tense){tense=true;musicAction('setState','tense');}
-  for(const e of race.drainEvents()){if(e.type==='capture'){musicAction('cue','capture');captureEffects.push({...e,at:performance.now()});if(e.interceptBonus){clearTimeout(interceptTimer);$('intercept-feedback').textContent='截胡！ +1';$('intercept-feedback').hidden=false;interceptTimer=setTimeout(()=>{$('intercept-feedback').hidden=true;},1200);}message(`犀牛插旗！${e.waterName} +1${e.comboBonus?`・連擊×${e.combo} +1`:''}${e.interceptBonus?'・截胡 +1':''}`,2200);}if(e.type==='stolen'){musicAction('cue','lost');notices.push(`${e.waterName}被搶走了`,2600);}if(e.type==='wave')notices.push(`📢 增援範圍擴大！新增 ${e.count} 個消防栓`,2000);if(e.type==='horn')musicAction('cue','horn');}
+  const events=race.drainEvents();for(const e of events){if(e.type==='capture'){musicAction('cue','capture');captureEffects.push({...e,at:performance.now()});if(e.interceptBonus){clearTimeout(interceptTimer);$('intercept-feedback').textContent='截胡！ +1';$('intercept-feedback').hidden=false;interceptTimer=setTimeout(()=>{$('intercept-feedback').hidden=true;},1200);}message(`犀牛插旗！${e.waterName} +1${e.comboBonus?`・連擊×${e.combo} +1`:''}${e.interceptBonus?'・截胡 +1':''}`,2200);}if(e.type==='stolen'){musicAction('cue','lost');notices.push(`${e.waterName}被搶走了`,2600);}if(e.type==='wave')notices.push(`📢 增援範圍擴大！新增 ${e.count} 個消防栓`,2000);if(e.type==='horn')musicAction('cue','horn');}
+  commanderDialogue?.update({seconds:RULES.roundSeconds-s.remaining,player:{x,y},water:s.water,construction:s.construction,npcActive:s.npcs.some(n=>n.active),events});
   const notice=notices.at(performance.now());$('stolen-feedback').textContent=notice;$('stolen-feedback').hidden=!notice;
   if(s.status==='finished')finishRound();
 }
@@ -423,7 +440,7 @@ $('start-screen').addEventListener('cancel',e=>e.preventDefault());
 $('start-game').addEventListener('click',async()=>{if(phase!=='select')return;if(!bootstrapped){await boot();return;}difficulty=['easy','normal','hard'].includes($('start-difficulty').value)?$('start-difficulty').value:'normal';tense=false;playMusic();$('start-game').disabled=true;await goStation($('start-station').value);$('start-game').disabled=false;});
 $('next-round').addEventListener('click',async()=>{if(phase!=='result')return;tense=false;phase='loading';playMusic();$('next-round').disabled=true;await goStation(station);$('next-round').disabled=false;});
 $('result-dialog').addEventListener('cancel',e=>e.preventDefault());
-Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,difficulty,tutorialStep,testRate,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteCssHeight,metersPerUnit,collisionRadius,hydrantLabels:hydrantLabels.map(q=>({...q})),joystick:{...joystick},runHeld,movementSpeed,music:music.getState(),race:race?.getState()||null,incident:incident?{crowdCount:Math.min(incident.people.length,crowdCount(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))),vehicles:incident.vehicles.map(v=>({...v})),people:incident.people.map(p=>({...p})),renderedSprites,crowdFactor}:null,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom,viewWidthMeters}),renderScene})});
+Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,difficulty,tutorialStep,testRate,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteCssHeight,metersPerUnit,collisionRadius,commander:phase==='playing'&&incident?.commander?{...incident.commander,...commanderRender,lines:[...commanderRender.lines]}:null,hydrantLabels:hydrantLabels.map(q=>({...q})),joystick:{...joystick},runHeld,movementSpeed,music:music.getState(),race:race?.getState()||null,incident:incident?{crowdCount:Math.min(incident.people.length,crowdCount(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))),vehicles:incident.vehicles.map(v=>({...v})),people:incident.people.map(p=>({...p})),renderedSprites,crowdFactor}:null,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom,viewWidthMeters}),renderScene})});
 async function boot(){
   $('start-game').disabled=true;
   try{
@@ -435,7 +452,7 @@ async function boot(){
     const stationButtons=[];for(const s of base.stations){const option=document.createElement('option');option.value=s.name;option.textContent=s.name;$('start-station').append(option);const b=document.createElement('button');b.type='button';b.textContent=s.name;b.dataset.startStation=s.name;b.addEventListener('click',()=>{$('start-station').value=s.name;for(const el of stationButtons)el.setAttribute('aria-pressed',String(el===b));});stationButtons.push(b);$('station-choices').append(b);}
     $('start-station').value=base.stations.find(s=>s.name.includes('莊敬'))?.name||base.stations[0].name;
     for(const b of stationButtons)b.setAttribute('aria-pressed',String(b.dataset.startStation===$('start-station').value));
-    await Promise.all(Object.keys(ART).map(name=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>{images[name]=image;resolve();};image.onerror=()=>reject(Error('現場圖像尚未準備完成'));image.src=`./art/${name}.png`;})));
+    await Promise.all([...Object.keys(ART),'commander_hd'].map(name=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>{images[name]=image;resolve();};image.onerror=()=>reject(Error('現場圖像尚未準備完成'));image.src=`./art/${name}.png`;})));
     bootstrapped=true;$('start-game').disabled=false;$('start-game').textContent='開始搶水源';$('start-status').textContent='手機左搖桿走路，同時按住右側「跑」奔跑；電腦方向鍵／WASD走動，Shift奔跑。';
   }catch(e){console.error(e);$('start-status').textContent=`${e.message}。請按重試載入。`;$('start-game').textContent='重試載入';$('start-game').disabled=false;}
 }

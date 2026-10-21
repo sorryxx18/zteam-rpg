@@ -19,6 +19,9 @@ export function layoutVehicleSprites(items,obstacles=[]){
  }
  return placed;
 }
+export function selectHydrantLabels(items){
+ const kept=[];for(const item of items.filter(q=>q.distance<=30).sort((a,b)=>a.distance-b.distance).slice(0,2))if(kept.every(q=>Math.abs(q.x-item.x)>=(q.width+item.width)/2||Math.abs(q.y-item.y)>=(q.height+item.height)/2))kept.push(item);return kept;
+}
 export function createNoticeQueue(){
  let pending=[],active=null,until=0;
  return {push(text,duration){pending.push({text,duration});},at(now){if(active&&now>=until)active=null;if(!active&&pending.length){active=pending.shift();until=now+active.duration;}return active?.text||'';},clear(){pending=[];active=null;until=0;}};

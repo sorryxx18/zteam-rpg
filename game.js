@@ -1,10 +1,10 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3f';
-import {createMusicPlayer} from './music.mjs?v=6v3f';
-import {RULES,NPC_COUNTS,createRace,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3f';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v3f';
-import {localTestRate} from './qa-clock.mjs?v=6v3f';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3f';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites} from './ui.mjs?v=6v3f';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3g';
+import {createMusicPlayer} from './music.mjs?v=6v3g';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3g';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v3g';
+import {localTestRate} from './qa-clock.mjs?v=6v3g';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3g';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v3g';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
@@ -17,6 +17,7 @@ const walkSpeed=5,runSpeed=10,metersPerUnit=1,collisionRadius=.32;
 const music=createMusicPlayer();
 let musicError=false;
 let eligibleMissions=new Set(),captureEffects=[],interceptTimer;
+let hydrantLabels=[];
 let incident=null,borrowAt=-Infinity,crowdFactor=1,renderedSprites=0;
 let sites=[],water=[],waterKeys=[],race=null,siteIndex=-1,introAt=0,introSite=null,tense=false;
 const pinnedCells=new Set();
@@ -74,14 +75,14 @@ function inputBlocked(){return !ready||phase!=='playing'||inputModalOpen();}
 $('music-settings').addEventListener('click',()=>{if(inputModalOpen())return;clearInput();updateMusicUI();$('music-settings-dialog').showModal();$('music-toggle').focus();});
 $('music-settings-close').addEventListener('click',()=>{clearInput();$('music-settings-dialog').close();if(ready&&!inputModalOpen())canvas.focus({preventScroll:true});});
 $('music-settings-dialog').addEventListener('close',()=>{clearInput();if(ready&&!inputModalOpen())canvas.focus({preventScroll:true});});
-async function goStation(name){
+async function goStation(name,fallbackIndex=null,tried=0){
   if(!sites.length)return;
   const token=++arrival;ready=false;phase='loading';notices.clear();clearInput();station=name;message('沿著街角，準備出發…');
   try{
   failed.clear();
   const candidates=missionCandidates(sites,base.stations.find(s=>s.name===name),eligibleMissions);
   if(!candidates.length)throw Error('所選分隊沒有可用場所，請換分隊或重試');
-  let next=Math.floor(Math.random()*candidates.length);if(candidates[next]===sites[siteIndex]&&candidates.length>1)next=(next+1)%candidates.length;introSite=candidates[next];siteIndex=sites.indexOf(introSite);tense=false;race=null;
+  let next=fallbackIndex??Math.floor(Math.random()*candidates.length);if(fallbackIndex===null&&candidates[next]===sites[siteIndex]&&candidates.length>1)next=(next+1)%candidates.length;introSite=candidates[next];siteIndex=sites.indexOf(introSite);tense=false;race=null;
   // Previous round corridors may exceed the LRU budget. Release them BEFORE
   // loading the new fire cells, otherwise every new cell evicts itself.
   pinnedCells.clear();
@@ -95,6 +96,7 @@ async function goStation(name){
   await Promise.all([...pinnedCells].map(loadCell));if(token!==arrival)return;
   if(!cache.has(cellKey(introSite.x,introSite.y))||[...pinnedCells].some(k=>!cache.has(k)))throw Error('本局道路讀取失敗');
   await loadNearby(introSite.x,introSite.y);if(token!==arrival)return;
+  if(!findPlayerSpawn(introSite,walkable)){if(tried+1<candidates.length)return goStation(name,(next+1)%candidates.length,tried+1);throw Error('本分隊暫無可用任務，請選其他分隊');}
   const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,500).map(async key=>{const r=await fetch(`./data/w/${key}.json`,{cache:'no-cache'});if(!r.ok)throw Error('消防栓格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
   const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,10);
   if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
@@ -252,11 +254,11 @@ function waterMark(c,source,px,py,size=1,result=false,index=null,target=true,nea
   c.restore();
 }
 function drawHydrantNames(c,scale,w,h){
- const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
- const sources=snapshot?.status==='idle'?selectObjectives(water,introSite,300,10):snapshot?.water||[],ratio=w/canvas.getBoundingClientRect().width;
+ hydrantLabels=[];const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
+ const sources=snapshot?.status==='idle'?selectObjectives(water,introSite,300,10):snapshot?.water||[],ratio=w/canvas.getBoundingClientRect().width,candidates=[];
  c.save();c.textAlign='center';c.font=`${11*ratio}px sans-serif`;c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3*ratio;
- for(const source of sources){const a=w/2+(source.x-x)*scale,b=h/2-(source.y-y)*scale;if(Math.hypot(source.x-x,source.y-y)>30||a<-30||a>w+30||b<-30||b>h+30)continue;c.strokeText(source.n,a,b+24*ratio);c.fillText(source.n,a,b+24*ratio);}
- c.restore();
+ for(const source of sources){const a=w/2+(source.x-x)*scale,b=h/2-(source.y-y)*scale,distance=Math.hypot(source.x-x,source.y-y);if(distance>30||a<-30||a>w+30||b<-30||b>h+30)continue;candidates.push({name:source.n,distance,x:a,y:b+20*ratio,textY:b+24*ratio,width:c.measureText(source.n).width+6*ratio,height:16*ratio});}
+ hydrantLabels=selectHydrantLabels(candidates);for(const q of hydrantLabels){c.strokeText(q.name,q.x,q.textY);c.fillText(q.name,q.x,q.textY);}c.restore();
 }
 function drawFire(c,fx,fy,ratio,isMini,frame){
   c.save();c.translate(fx,fy);c.scale(isMini?1:ratio,isMini?1:ratio);
@@ -421,7 +423,7 @@ $('start-screen').addEventListener('cancel',e=>e.preventDefault());
 $('start-game').addEventListener('click',async()=>{if(phase!=='select')return;if(!bootstrapped){await boot();return;}difficulty=['easy','normal','hard'].includes($('start-difficulty').value)?$('start-difficulty').value:'normal';tense=false;playMusic();$('start-game').disabled=true;await goStation($('start-station').value);$('start-game').disabled=false;});
 $('next-round').addEventListener('click',async()=>{if(phase!=='result')return;tense=false;phase='loading';playMusic();$('next-round').disabled=true;await goStation(station);$('next-round').disabled=false;});
 $('result-dialog').addEventListener('cancel',e=>e.preventDefault());
-Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,difficulty,tutorialStep,testRate,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteCssHeight,metersPerUnit,collisionRadius,joystick:{...joystick},runHeld,movementSpeed,music:music.getState(),race:race?.getState()||null,incident:incident?{crowdCount:Math.min(incident.people.length,crowdCount(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))),vehicles:incident.vehicles.map(v=>({...v})),people:incident.people.map(p=>({...p})),renderedSprites,crowdFactor}:null,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom,viewWidthMeters}),renderScene})});
+Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,difficulty,tutorialStep,testRate,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteCssHeight,metersPerUnit,collisionRadius,hydrantLabels:hydrantLabels.map(q=>({...q})),joystick:{...joystick},runHeld,movementSpeed,music:music.getState(),race:race?.getState()||null,incident:incident?{crowdCount:Math.min(incident.people.length,crowdCount(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))),vehicles:incident.vehicles.map(v=>({...v})),people:incident.people.map(p=>({...p})),renderedSprites,crowdFactor}:null,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom,viewWidthMeters}),renderScene})});
 async function boot(){
   $('start-game').disabled=true;
   try{

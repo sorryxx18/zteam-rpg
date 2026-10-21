@@ -7,12 +7,12 @@ import {createMusicPlayer} from '../music.mjs';
 import {createRace as createRaceForKinds} from '../race.mjs';
 import {localTestRate} from '../qa-clock.mjs';
 const root=new URL('../',import.meta.url);
-async function harness({location=new URL('https://public.example/'),musicPlayer=null,rejectMusic=false,musicStateError=false,wall=false,viewport=[780,1000],autoIntro=true,shortRoads=false,widePreload=false,realData=false,initialSite=0,bootFailure=null,movementOnly=false}={}){
+async function harness({location=new URL('https://public.example/'),musicPlayer=null,rejectMusic=false,musicStateError=false,wall=false,viewport=[780,1000],autoIntro=true,blockedFirstSite=false,shortRoads=false,widePreload=false,realData=false,initialSite=0,bootFailure=null,movementOnly=false}={}){
   const html=await readFile(new URL('index.html',root),'utf8');
   const source=await readFile(new URL('game.js',root),'utf8');
   const storage=new Map();
   const elements=new Map(), calls=[],events={}, frames=[],drawCalls=[],raceInputs=[],timers=[];
-  const context2d=new Proxy({}, {get:(o,k)=>o[k]??((...args)=>{drawCalls.push([k,...args]);}),set:(o,k,v)=>(drawCalls.push(['set',k,v]),o[k]=v,true)});
+  const context2d=new Proxy({measureText:text=>({width:[...text].length*11})}, {get:(o,k)=>o[k]??((...args)=>{drawCalls.push([k,...args]);}),set:(o,k,v)=>(drawCalls.push(['set',k,v]),o[k]=v,true)});
   function element(id=''){return {id,value:'',textContent:'',disabled:false,hidden:false,open:false,dataset:{},listeners:{},classList:{add(){},remove(){}},getContext:()=>context2d,getBoundingClientRect:()=>({width:780,height:1000}),append(o){this.options??=[];this.options.push(o);},setAttribute(k,v){this[k]=v;},focus(){document.activeElement=this;},closest:()=>null,setPointerCapture(){},showModal(){this.open=true;},close(){this.open=false;},addEventListener(k,fn){this.listeners[k]=fn;}};}
   for(const [,id] of html.matchAll(/id="([^"]+)"/g))elements.set(id,element(id));
   for(const [,id,text] of html.matchAll(/id="([^"]+)"[^>]*>([^<]*)</g))if(elements.has(id))elements.get(id).textContent=text;
@@ -48,6 +48,7 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   box.fetch=async url=>{if(url.endsWith('mission-pool.json')){calls.push(url);return {ok:true,json:async()=>({eligible:[0,1]})};}if(url.endsWith('sites.json')){calls.push(url);return {ok:true,json:async()=>[fixtureSite,{...fixtureSite,n:'第二場所',x:home.x+10}]};}if(url.endsWith('/w/index.json')){calls.push(url);return {ok:true,json:async()=>[waterKey]};}if(url.includes('/w/')){calls.push(url);return {ok:true,json:async()=>waterFixture.map(w=>[w.x,w.y,w.k])};}if(url.endsWith('water.json')){calls.push(url);return {ok:true,json:async()=>waterFixture};}return fixtureFetch(url);};
   box.Math=Object.create(Math);box.Math.random=()=>initialSite/3;
   if(realData){const waterKeys=JSON.parse(await readFile(new URL('data/w/index.json',root),'utf8'));const paths=['base','sites','mission-pool','w/index',...waterKeys.map(k=>'w/'+k),...base.cells.map(k=>'c/'+k)];const files=new Map(await Promise.all(paths.map(async p=>[`./data/${p}.json`,JSON.parse(await readFile(new URL(`data/${p}.json`,root),'utf8'))])));box.fetch=async url=>{calls.push(url);return {ok:files.has(url),json:async()=>structuredClone(files.get(url))};};}
+  if(blockedFirstSite){const fetch=box.fetch;box.fetch=async url=>{const response=await fetch(url);if(url.endsWith('sites.json'))return {ok:true,json:async()=>[fixtureSite,{...fixtureSite,n:'自動備援場所',x:home.x+170}]};if(url.includes('/c/')){const d=await response.json();return {ok:true,json:async()=>({...d,builds:[{p:[fixtureSite.x-70,fixtureSite.y-70,fixtureSite.x+70,fixtureSite.y-70,fixtureSite.x+70,fixtureSite.y+70,fixtureSite.x-70,fixtureSite.y+70]}]})};}return response;};}
   const advance=ms=>{now=ms;frames.shift()(ms);};
   box.createMusicPlayer=()=>{let muted=false,playing=false;return {play:id=>{calls.push('play:'+id);playing=!rejectMusic;return rejectMusic?Promise.reject(Error('gesture denied')):Promise.resolve();},setState:id=>calls.push('state:'+id),cue:id=>calls.push('cue:'+id),pause(){playing=false;},setMuted(v){muted=v;},getState:()=>({muted,playing,track:'explore',error:musicStateError?'resume denied':null})};};
   if(musicPlayer)box.createMusicPlayer=()=>musicPlayer;
@@ -58,6 +59,9 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('第三輪：首題30/45/60m皆受阻時，自動選同分隊下一場所，不要求玩家重試',async()=>{
+ const h=await harness({blockedFirstSite:true});await h.click('start-game');const s=h.window.__game.getState();assert.equal(s.phase,'playing');assert.equal(s.race.site.n,'自動備援場所');assert.equal(s.station,s.spawnName);assert.equal(h.elements.get('start-screen').open,false);assert.ok(!h.elements.get('start-status').textContent.includes('出生失敗'));
+});
 test('第二輪：手機車輛依實際人物畫面高度，消防栓名稱最後覆畫在人物與火煙之上',async()=>{
  for(const viewport of [[390,640],[780,1000]]){
   const h=await harness({viewport});await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();
@@ -204,7 +208,7 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,7);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3f')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v3g')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

@@ -89,7 +89,7 @@ test('fixed public sample preserves 20 distinct sites, nine teams and support; a
 test('fresh-round loaded geometry matches actual game loadNearby, pinned corridors and LRU',async()=>{
  const input=balance.loadInputs(),source=fs.readFileSync(new URL('game.js',root),'utf8');
  const loaders=source.slice(source.indexOf('async function loadCell('),source.indexOf('function releaseCapture('));
- const corridor=source.slice(source.indexOf('  await loadNearby(introSite.x,introSite.y);'),source.indexOf('  const cells=await Promise.all(waterCellKeys'));
+ const corridor=source.slice(source.indexOf('  await loadNearby(introSite.x,introSite.y);'),source.indexOf('  if(!findPlayerSpawn('));
  for(const sample of input.samples.samples){
   const context={base:input.base,available:new Set(input.base.cells),cache:new Map(),pending:new Map(),failed:new Set(),pinnedCells:new Set(),roadsVersion:0,console,message:()=>{},token:1,arrival:1,difficulty:'normal',NPC_COUNTS,cellKey:(x,y)=>`${Math.floor(x/input.base.cs)}_${Math.floor(y/input.base.cs)}`,introSite:input.sites[sample.siteIndex],resolveFireSite,
    fetch:async url=>({ok:true,json:async()=>structuredClone(input.cells.get(url.replace('./data/c/','').replace('.json','')))}),

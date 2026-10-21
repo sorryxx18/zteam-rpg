@@ -19,6 +19,10 @@ export function rememberRecord(storage,difficulty,outcome){
  try{const saved=JSON.parse(storage?.getItem(key));for(const k of Object.keys(record))if(Number.isSafeInteger(saved?.[k])&&saved[k]>=0)record[k]=saved[k];}catch{}
  record[outcome]++;try{storage?.setItem(key,JSON.stringify(record));}catch{}return record;
 }
+export function findPlayerSpawn(site,canStand,distance=30){
+ for(const radius of [distance,distance*1.5,distance*2])for(let i=0;i<72;i++){const angle=i*Math.PI/36,p={x:site.x+Math.cos(angle)*radius,y:site.y+Math.sin(angle)*radius};if(canStand(p.x,p.y))return p;}
+ return null;
+}
 export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=()=>performance.now(),random=Math.random,canStand=()=>true,config={}}){
  const rules={...RULES,...config};
  const counts=NPC_COUNTS;
@@ -87,7 +91,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   nextWave=1;const targets=waves[0].map(w=>({...w,openedAt:0}));if(!targets.length)throw new Error('場所附近沒有水源');
   let spawn=null;
   if(rules.spawnMode==='nearest-station'){if(!near.length)throw new Error('沒有可用分隊');const s=near[0];if(canStand(s.x,s.y))spawn={x:s.x,y:s.y};}
-  else {for(let i=0;i<72;i++){const angle=i*Math.PI/36,p={x:site.x+Math.cos(angle)*rules.spawnDistance,y:site.y+Math.sin(angle)*rules.spawnDistance};if(canStand(p.x,p.y)){spawn=p;break;}}}
+  else spawn=findPlayerSpawn(site,canStand,rules.spawnDistance);
   if(!spawn)throw new Error('找不到可站立的出生位置');
   started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();lastPlayer=null;
   state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:targets.length,plannedTotal:waves.reduce((n,w)=>n+w.length,0),wave:0,water:targets,npcs:[]};

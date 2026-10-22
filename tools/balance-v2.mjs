@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {createIncident,crowdSpeedFactor} from '../incident.mjs';
 import {RULES,NPC_COUNTS,createRace,buildRoadGraph,shortestRoute} from '../race.mjs';
 import {circleIntersectsPoly,stepMove,COLLISION_RADIUS} from '../core.mjs';
-import {resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,missionCandidates} from '../missions.mjs';
+import {resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,missionCandidates,reachableWater} from '../missions.mjs';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 export function loadInputs(){
@@ -34,7 +34,8 @@ export function prepareSample(input,sample){
  neighbors(fire.x,fire.y);
  for(const dx of [-90,0,90])for(const dy of [-90,0,90])neighbors(fire.x+dx,fire.y+dy);
  const geometry={roads:[...selected].flatMap(k=>cells.get(k).roads||[]),buildings:[...selected].flatMap(k=>cells.get(k).builds||[])};
- const water=selectObjectives(decodeWaterCells(waterCellKeys(fire,keys,base.cs,500).map(key=>({key,rows:waters.get(key)})),geometry.roads),fire,500,Infinity).map(w=>({...w,sourceId:w.id}));
+ const stand=createNavigator({...geometry,cellKeys:[...selected],cellSize:base.cs}).canStand;
+ const water=selectObjectives(reachableWater(decodeWaterCells(waterCellKeys(fire,keys,base.cs,500).map(key=>({key,rows:waters.get(key)})),geometry.roads),stand,RULES.captureRadius),fire,500,Infinity).map(w=>({...w,sourceId:w.id}));
  return {fire,water,stations:base.stations,...geometry,cellKeys:[...selected]};
 }
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);

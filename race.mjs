@@ -1,4 +1,4 @@
-import {circleIntersectsPoly,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32a';
+import {circleIntersectsPoly,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32b';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
 export const RULES=Object.freeze({roundSeconds:210,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:6,npcSpeedRatio:.9});

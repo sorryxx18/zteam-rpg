@@ -1,13 +1,13 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32a';
-import {createMusicPlayer} from './music.mjs?v=6v32a';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32a';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32a';
-import {localTestRate} from './qa-clock.mjs?v=6v32a';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v32a';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32a';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32b';
+import {createMusicPlayer} from './music.mjs?v=6v32b';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32b';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32b';
+import {localTestRate} from './qa-clock.mjs?v=6v32b';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater} from './missions.mjs?v=6v32b';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32b';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
-import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32a';
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32b';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
@@ -105,7 +105,7 @@ async function goStation(name,fallbackIndex=null,tried=0){
   if([...pinnedCells].some(k=>!cache.has(k)))throw Error('出生點周邊建物讀取失敗');
   if(!findPlayerSpawn(introSite,walkable,30,loadedRoads())){if(tried+1<candidates.length)return goStation(name,(next+1)%candidates.length,tried+1);throw Error('本分隊暫無可用任務，請選其他分隊');}
   const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,500).map(async key=>{const r=await fetch(`./data/w/${key}.json`,{cache:'no-cache'});if(!r.ok)throw Error('消防栓格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
-  const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,10);
+  const geometry=cachedGeometry();water=reachableWater(decodeWaterCells(cells,geometry.roads),walkable,RULES.captureRadius);const objectives=selectObjectives(water,introSite,300,10);
   if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
   incident=createIncident({site:introSite,roads:geometry.roads,water,canStand:walkable});commanderDialogue=createCommanderDialogue(introSite.n);borrowAt=-Infinity;
   race=createRace({sites:[introSite],water:selectObjectives(water,introSite,500,water.length).map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:500,waves:true,difficulty,npcSpawnMode:'perimeter'}});

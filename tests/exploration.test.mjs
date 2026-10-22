@@ -254,8 +254,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
- assert.ok(imports.every(path=>path.endsWith('?v=6v32a')),imports.join(', '));
- const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32a/,'模型依賴也要避開舊快取');
+ assert.ok(imports.every(path=>path.endsWith('?v=6v32b')),imports.join(', '));
+ const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32b/,'模型依賴也要避開舊快取');
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

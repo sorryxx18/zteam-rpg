@@ -129,3 +129,9 @@ test('authorized sites preserve exact bytes, count and field whitelist',()=>{
  for(const s of sites){assert.deepEqual(Object.keys(s).sort(),['n','addr','use','st','x','y','q'].sort());assert.ok(Number.isFinite(s.x)&&Number.isFinite(s.y));}
  assertAuthorized('sites.json');
 });
+test('hydrants with nowhere to stand within the hose radius are not objectives',()=>{
+ const box=(x,y)=>x>=-5&&x<=5&&y>=-5&&y<=5;   // a 10m building
+ const canStand=(x,y)=>!box(x,y);
+ const water=[{id:'inside',x:0,y:0},{id:'edge',x:4,y:0},{id:'street',x:20,y:0}];
+ assert.deepEqual(m.reachableWater(water,canStand,3).map(w=>w.id),['edge','street']);
+});

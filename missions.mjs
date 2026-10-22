@@ -118,6 +118,13 @@ export function decodeWaterCells(cells, roads=[]) {
   }));
 }
 
+// A hydrant only counts when someone can stand within the hose radius of it (some list coordinates sit inside building outlines).
+export function reachableWater(water, canStand, radius=3) {
+  const offsets=[[0,0]];
+  for(const r of [0.5,1,1.5,2,2.5,radius-0.1])for(let k=0;k<24;k++)offsets.push([r*Math.cos(k*Math.PI/12),r*Math.sin(k*Math.PI/12)]);
+  return water.filter(w=>offsets.some(([dx,dy])=>canStand(w.x+dx,w.y+dy)));
+}
+
 export function selectObjectives(water, site, radius=300, limit=15) {
   return water.map((source,index)=>({source,index,distance:Math.hypot(source.x-site.x,source.y-site.y)}))
     .filter(item=>item.distance<=radius)

@@ -15,7 +15,7 @@ test('cancel discards progress and blocks same source until leaving 3m; duration
 });
 for(const step of [.1,.25,50])test(`NPC arrival consumes travel before construction, three second cooldown; dt=${step}`,()=>{
  const {at}=setup({x:100,stations:[{x:0,y:0}],config:{npcCount:1},water:[{n:'甲',k:'hydrant_above',x:100,y:0},{n:'乙',k:'hydrant_under',x:200,y:0}]});
- const speed=10*RULES.npcSpeedRatio,arrival=RULES.npcDelaySeconds+97/speed;
+ const speed=RULES.runSpeed*RULES.npcSpeedRatio,arrival=RULES.npcDelaySeconds+97/speed;
  let t=0;while(t+step<arrival-.125){t+=step;at(t);}let s=at(arrival-.125);assert.ok(Math.abs(s.npcs[0].x-(97-.125*speed))<1e-8);assert.equal(s.npcs[0].construction,null);
  s=at(arrival+.125);assert.equal(s.water[0].owner,null);assert.ok(Math.abs(s.npcs[0].construction.elapsed-.125)<1e-8);
  s=at(arrival+2.5);assert.equal(s.water[0].owner,'npc1');assert.ok(Math.abs(s.npcs[0].cooldownRemaining-3)<1e-8);const x=s.npcs[0].x;
@@ -29,13 +29,13 @@ test('earlier NPC completion wins even when player is processed in the same long
 test('difficulty maps easy/normal/hard to 2/3/4 NPCs, explicit count overrides, all dispatch no earlier than 5s',()=>{
  for(const [difficulty,count] of [['easy',2],['normal',3],['hard',4]]){
   const {race,at}=setup({stations:[{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}],config:{difficulty,npcCount:undefined}});let s=race.getState();assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);
-  assert.ok(at(4.9).npcs.every(n=>!n.active&&n.x===0));assert.ok(at(5).npcs.every(n=>n.active&&n.x===0));assert.ok(Math.abs(at(6).npcs[0].x-10*RULES.npcSpeedRatio)<1e-8);
+  assert.ok(at(4.9).npcs.every(n=>!n.active&&n.x===0));assert.ok(at(5).npcs.every(n=>n.active&&n.x===0));assert.ok(Math.abs(at(6).npcs[0].x-RULES.runSpeed*RULES.npcSpeedRatio)<1e-8);
  }
  const override=setup({stations:[{x:0,y:0}],config:{difficulty:'hard',npcCount:1}});assert.equal(override.race.getState().npcs.length,1);
  assert.throws(()=>setup({config:{difficulty:'bogus'}}),/難度|規則/);
 });
 test('deadline counts only completions strictly before round end, including long frame crossing deadline',()=>{
- for(const start of [177.49,177.5,179]){const {race,at}=setup();at(start,{x:100,y:0});const s=at(185,{x:100,y:0});assert.equal(s.captured,start===177.49?1:0);assert.equal(s.totalHoses,start===177.49?5:0);assert.equal(s.status,'finished');assert.equal(s.construction,null);assert.deepEqual(at(186,{x:100,y:0}),s);assert.equal(race.drainEvents().filter(e=>e.type==='finish').length,1);}
+ for(const start of [207.49,207.5,209]){const {race,at}=setup();at(start,{x:100,y:0});const s=at(215,{x:100,y:0});assert.equal(s.captured,start===207.49?1:0);assert.equal(s.totalHoses,start===207.49?5:0);assert.equal(s.status,'finished');assert.equal(s.construction,null);assert.deepEqual(at(216,{x:100,y:0}),s);assert.equal(race.drainEvents().filter(e=>e.type==='finish').length,1);}
 });
 test('cancel immediately removes contested from opponent, and invalid position discards progress',()=>{
  const {race,at}=setup({stations:[{x:100,y:0}],config:{npcCount:1,npcDelaySeconds:0}});at(0,{x:100,y:0});assert.equal(race.getState().construction.contested,true);const s=race.cancelConstruction();assert.equal(s.npcs[0].construction.contested,false);

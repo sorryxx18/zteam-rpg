@@ -1,20 +1,20 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v3h';
-import {createMusicPlayer} from './music.mjs?v=6v3h';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v3h';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v3h';
-import {localTestRate} from './qa-clock.mjs?v=6v3h';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v3h';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v3h';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v32';
+import {createMusicPlayer} from './music.mjs?v=6v32';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32';
+import {localTestRate} from './qa-clock.mjs?v=6v32';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v32';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
-import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v3h';
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
 let stickPointer=null,runPointer=null,runHeld=false,movementSpeed=0,spriteCssHeight=64;
-let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=false,character='rhino',station='',viewWidthMeters=175,zoom=1, width=640,height=360, previous=0, walkingTime=0, arrival=0, nearbyKey='', messageTimer;
+let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=false,character='rhino',station='',viewWidthMeters=175,zoomTouched=false,zoom=1, width=640,height=360, previous=0, walkingTime=0, arrival=0, nearbyKey='', messageTimer;
 // World distances and collision stay in metres; sprite display size stays in CSS pixels.
-const walkSpeed=5,runSpeed=10,metersPerUnit=1,collisionRadius=.32;
+const walkSpeed=3,runSpeed=6,metersPerUnit=1,collisionRadius=.32;
 const music=createMusicPlayer();
 let musicError=false;
 let eligibleMissions=new Set(),captureEffects=[],interceptTimer;
@@ -68,7 +68,7 @@ async function loadNearby(px,py){return Promise.all(neighbors(px,py).map(loadCel
 function releaseCapture(element,id){if(id!==null&&element.hasPointerCapture?.(id))element.releasePointerCapture(id);}
 function clearInput(){
   const left=stickPointer,right=runPointer;stickPointer=runPointer=null;
-  keys.clear();joystick.x=joystick.y=0;joystick.active=false;runHeld=false;moving=false;movementSpeed=0;
+  keys.clear();joystick.x=joystick.y=0;joystick.active=false;runHeld=false;moving=false;running=false;motionX=motionY=0;movementSpeed=0;
   showStick();$('run').classList.remove('pressed');
   releaseCapture($('joystick'),left);releaseCapture($('run'),right);
 }
@@ -79,7 +79,7 @@ $('music-settings-close').addEventListener('click',()=>{clearInput();$('music-se
 $('music-settings-dialog').addEventListener('close',()=>{clearInput();if(ready&&!inputModalOpen())canvas.focus({preventScroll:true});});
 async function goStation(name,fallbackIndex=null,tried=0){
   if(!sites.length)return;
-  const token=++arrival;ready=false;phase='loading';notices.clear();commanderDialogue=null;clearInput();station=name;message('沿著街角，準備出發…');
+  const token=++arrival;ready=false;phase='loading';notices.clear();camera.x=camera.y=0;dust=[];commanderDialogue=null;clearInput();station=name;message('沿著街角，準備出發…');
   try{
   failed.clear();
   const candidates=missionCandidates(sites,base.stations.find(s=>s.name===name),eligibleMissions);
@@ -104,7 +104,7 @@ async function goStation(name,fallbackIndex=null,tried=0){
   if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
   incident=createIncident({site:introSite,roads:geometry.roads,water,canStand:walkable});commanderDialogue=createCommanderDialogue(introSite.n);borrowAt=-Infinity;
   race=createRace({sites:[introSite],water:selectObjectives(water,introSite,500,water.length).map(w=>({...w,sourceId:w.id})),stations:base.stations,roads:geometry.roads,buildings:geometry.builds,clock:()=>performance.now()*testRate,random:Math.random,canStand:walkable,config:{targetRadius:500,waves:true,difficulty,npcSpawnMode:'perimeter'}});
-  $('mission-rules').textContent=`任務3分鐘，靠近消防栓3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${NPC_COUNTS[difficulty]}台，5秒後出動。`;
+  $('mission-rules').textContent=`任務3分30秒，靠近消防栓3m內佈線，完成才佔領；施工時不能移動，可取消。NPC消防車${NPC_COUNTS[difficulty]}台，5秒後出動。`;
   $('mission-support').hidden=!['復興分隊','永吉分隊'].includes(station);$('mission-support').textContent='周邊支援';
   x=introSite.x;y=introSite.y;direction='down';nearbyKey=cellKey(x,y);phase='mission';missionAt=performance.now();clearInput();$('start-screen').close();$('result-dialog').close();$('intro-address').textContent=`${introSite.n}｜${introSite.addr}`;$('intro').hidden=true;$('mission-detail').textContent=`${introSite.n}｜${introSite.addr}｜${introSite.use||introSite.u||'用途未提供'}`;$('mission-card').hidden=false;message('火警出題！記住地址，搶下周邊消防栓。',2000);canvas.focus({preventScroll:true});
   }catch(error){if(token!==arrival)return;phase='select';ready=false;race=null;introSite=null;clearInput();$('result-dialog').close();$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('intro').hidden=true;$('start-status').textContent=`${error.message}。請按開始重試。`;$('start-screen').showModal();message('本題暫時無法出勤，請重試。');}
@@ -117,12 +117,33 @@ function walkable(px,py){
   for(const k of neighbors(px,py))for(const b of cache.get(k)?.builds||[]){const [l,s,r,n]=b.bounds;if(px>=l-collisionRadius&&px<=r+collisionRadius&&py>=s-collisionRadius&&py<=n+collisionRadius&&circleIntersectsPoly(px,py,collisionRadius,b.p))return false;}
   return true;
 }
-function resize(){clearInput();const rect=canvas.getBoundingClientRect();width=Math.max(1,Math.round(rect.width/2));height=Math.max(1,Math.round(rect.height/2));canvas.width=width;canvas.height=height;zoom=width/viewWidthMeters;spriteCssHeight=window.matchMedia('(pointer:coarse),(max-width:900px),(max-height:450px)').matches?56:64;ctx.imageSmoothingEnabled=false;}
+const paceEffects={animation:true,dust:true,camera:true},camera={x:0,y:0};
+let running=false,motionX=0,motionY=0,dustClock=0,dust=[];
+function sceneCenter(isMini=false){return {x:x+(!isMini&&phase==='playing'?camera.x:0),y:y+(!isMini&&phase==='playing'?camera.y:0)};}
+function updatePace(dt){
+ if(!(dt>0&&dt<=.25))return;
+ dust=dust.map(p=>({...p,age:p.age+dt})).filter(p=>p.age<.4);
+ const active=phase==='playing'&&running,n=Math.hypot(motionX,motionY),limit=viewWidthMeters*.15,k=1-Math.exp(-dt*10);
+ const tx=active&&paceEffects.camera&&n?limit*motionX/n:0,ty=active&&paceEffects.camera&&n?limit*motionY/n:0;
+ camera.x+=(tx-camera.x)*k;camera.y+=(ty-camera.y)*k;
+ const distance=Math.hypot(camera.x,camera.y);if(distance>limit){camera.x*=limit/distance;camera.y*=limit/distance;}
+ const rect=canvas.getBoundingClientRect(),ratio=canvas.width/rect.width,scale=canvas.width/viewWidthMeters,pad=4*ratio,hx=Math.max(0,(canvas.width/2-spriteCssHeight*.4*ratio-pad)/scale),up=Math.max(0,(canvas.height/2-spriteCssHeight*ratio-pad)/scale),down=Math.max(0,(canvas.height/2-pad)/scale);
+ camera.x=Math.max(-hx,Math.min(hx,camera.x));camera.y=Math.max(-up,Math.min(down,camera.y));
+ if(!paceEffects.camera)camera.x=camera.y=0;
+ if(active&&paceEffects.dust){dustClock+=dt;while(dustClock>=.15){dustClock-=.15;dust.push({x,y,age:0});}}else dustClock=0;
+}
+function drawDust(c,scale,w,h){
+ const centre=sceneCenter(),ratio=w/canvas.getBoundingClientRect().width;c.save();c.fillStyle='#b5b5aa';
+ for(const p of dust){c.globalAlpha=.35*(1-p.age/.4);for(let i=0;i<3;i++){c.beginPath();c.arc(w/2+(p.x-centre.x)*scale+(i-1)*3*ratio,h/2-(p.y-centre.y)*scale+(2+i%2)*ratio,(1.2+i*.3)*ratio,0,Math.PI*2);c.fill();}}c.restore();
+}
+for(const [key,label]of Object.entries({animation:'跑步快動畫',dust:'腳下揚塵',camera:'鏡頭前帶'}))$('pace-'+key).addEventListener('click',()=>{paceEffects[key]=!paceEffects[key];$('pace-'+key).setAttribute('aria-pressed',String(paceEffects[key]));$('pace-'+key).textContent=label+'：'+(paceEffects[key]?'開':'關');if(key==='dust'&&!paceEffects[key])dust=[];if(key==='camera'&&!paceEffects[key])camera.x=camera.y=0;});
+function resize(){clearInput();const mobile=window.matchMedia('(pointer:coarse),(max-width:900px),(max-height:450px)').matches;if(!zoomTouched)viewWidthMeters=mobile?80:175;const rect=canvas.getBoundingClientRect();width=Math.max(1,Math.round(rect.width/2));height=Math.max(1,Math.round(rect.height/2));canvas.width=width;canvas.height=height;zoom=width/viewWidthMeters;spriteCssHeight=window.matchMedia('(pointer:coarse),(max-width:900px),(max-height:450px)').matches?56:64;ctx.imageSmoothingEnabled=false;}
 new ResizeObserver(resize).observe(canvas);
 function path(c,p,close=true){c.beginPath();for(let i=0;i<p.length;i+=2)i?c.lineTo(p[i],-p[i+1]):c.moveTo(p[i],-p[i+1]);if(close)c.closePath();}
 function polygon(c,p,color){path(c,p);c.fillStyle=color;c.fill();}
 function tree(c,tx,ty,size){c.fillStyle='#243d3040';c.fillRect(tx-1,-ty+1,size+2,size/2);c.fillStyle='#745b39';c.fillRect(tx-.6,-ty-1,1.2,3);c.fillStyle='#3e6443';c.fillRect(tx-size/2,-ty-size,size,size*.8);c.fillStyle='#608557';c.fillRect(tx-size/2+1,-ty-size-1,size-1,size*.65);c.fillStyle='#89a261';c.fillRect(tx-size/2+1,-ty-size-1,size*.4,1.5);}
 function drawWorld(c,scale,w,h,isMini=false){
+  const {x,y}=sceneCenter(isMini);
   c.fillStyle=isMini?'#94a07b':'#98a67e';c.fillRect(0,0,w,h);c.save();c.translate(w/2,h/2);c.scale(scale,scale);c.translate(-x,y);
   const view=[x-w/2/scale,y-h/2/scale,x+w/2/scale,y+h/2/scale];
   const tiles=[];for(const [key,data] of cache){const [a,b]=key.split('_').map(Number),left=a*base.cs,bottom=b*base.cs;if(left>view[2]||left+base.cs<view[0]||bottom>view[3]||bottom+base.cs<view[1])continue;tiles.push([left,bottom,data]);}
@@ -142,6 +163,7 @@ function drawWorld(c,scale,w,h,isMini=false){
 let overviewPromise, overviewData, roadName='巷弄／未命名道路',intersectionKey='',intersectionUntil=0;
 function loadedRoads(){if(roadsAt===roadsVersion)return roadCache;const seen=new Set();roadCache=[...cache.values()].flatMap(d=>d.roads||[]).filter(r=>{const key=r.n+'|'+r.p.join(',');if(seen.has(key))return false;seen.add(key);return true;}).map(r=>({...r,labelBounds:bounds(r.p)}));roadsAt=roadsVersion;return roadCache;}
 function drawRoadSigns(c,scale,w,h){
+  const {x,y}=sceneCenter();
   const ratio=w/canvas.getBoundingClientRect().width,boxes=[],placed=new Map();
   c.save();c.textAlign='center';c.textBaseline='middle';
   for(const road of loadedRoads()){
@@ -219,8 +241,9 @@ function renderScene(){
   const sceneZoom=phase==='intro'?zoom*(.2+.8*Math.min(1,(performance.now()-introAt)/2000)):zoom;
   drawWorld(ctx,sceneZoom,width,height);
   drawRoadSigns(ctx,sceneZoom,width,height);drawRace(ctx,sceneZoom,width,height);
-  if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(width/2,height/2,zoom*collisionRadius,zoom*collisionRadius/2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteCssHeight*width/canvas.getBoundingClientRect().width/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(width/2-32*size),Math.round(height/2-f.footY*size),64*size,80*size);}}
-  if(ready&&performance.now()-borrowAt<1200){ctx.save();ctx.font=`bold ${16*width/canvas.getBoundingClientRect().width}px sans-serif`;ctx.textAlign='center';ctx.strokeStyle='#263e39';ctx.lineWidth=3;ctx.fillStyle='#ffe64d';const py=height/2-(spriteCssHeight+12)*width/canvas.getBoundingClientRect().width;ctx.strokeText('借過借過',width/2,py);ctx.fillText('借過借過',width/2,py);ctx.restore();}
+  const centre=sceneCenter(),playerX=width/2+(x-centre.x)*sceneZoom,playerY=height/2-(y-centre.y)*sceneZoom;drawDust(ctx,sceneZoom,width,height);
+  if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(playerX,playerY,zoom*collisionRadius,zoom*collisionRadius/2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteCssHeight*width/canvas.getBoundingClientRect().width/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(playerX-32*size),Math.round(playerY-f.footY*size),64*size,80*size);}}
+  if(ready&&performance.now()-borrowAt<1200){ctx.save();ctx.font=`bold ${16*width/canvas.getBoundingClientRect().width}px sans-serif`;ctx.textAlign='center';ctx.strokeStyle='#263e39';ctx.lineWidth=3;ctx.fillStyle='#ffe64d';const py=playerY-(spriteCssHeight+12)*width/canvas.getBoundingClientRect().width;ctx.strokeText('借過借過',playerX,py);ctx.fillText('借過借過',playerX,py);ctx.restore();}
   drawHydrantNames(ctx,sceneZoom,width,height);
   drawWorld(mini,.16,128,100,true);drawRace(mini,.16,128,100,true);playerArrow(mini,64,50);
   if(ready)updateLocation();
@@ -231,14 +254,14 @@ function renderScene(){
   if(phase==='result')drawResultMap();
 }
 function update(dt){
-  movementSpeed=0;crowdFactor=1;
+  movementSpeed=0;crowdFactor=1;running=false;motionX=motionY=0;
   // Check the model BEFORE world movement; ticking and drawing keep running.
   if(race?.getState().construction){clearInput();return;}
   if(inputBlocked()){clearInput();return;}
   const pressed=k=>keys.has(k);
   const dx=joystick.active?joystick.x:Number(pressed('ArrowRight')||pressed('d'))-Number(pressed('ArrowLeft')||pressed('a'));
   const dy=joystick.active?joystick.y:Number(pressed('ArrowUp')||pressed('w'))-Number(pressed('ArrowDown')||pressed('s'));
-  if(dx||dy){crowdFactor=crowdSpeedFactor(incident,RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds),{x,y});if(crowdFactor<1&&performance.now()-borrowAt>=5000)borrowAt=performance.now();direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'up':'down');const next=stepMove({x,y},dx,dy,dt,((joystick.active?runHeld:pressed('Shift')||pressed(' '))?runSpeed:walkSpeed)*testRate*crowdFactor,walkable);const distance=Math.hypot(next.x-x,next.y-y);moving=distance>0;movementSpeed=dt>0?distance/dt:0;x=next.x;y=next.y;if(moving)walkingTime+=distance*.16/.55;const k=cellKey(x,y);if(k!==nearbyKey){nearbyKey=k;loadNearby(x,y);}}else moving=false;
+  if(dx||dy){crowdFactor=crowdSpeedFactor(incident,RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds),{x,y});if(crowdFactor<1&&performance.now()-borrowAt>=5000)borrowAt=performance.now();const wantsRun=joystick.active?runHeld:pressed('Shift')||pressed(' ');direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'up':'down');const next=stepMove({x,y},dx,dy,dt,(wantsRun?runSpeed:walkSpeed)*testRate*crowdFactor,walkable);const distance=Math.hypot(next.x-x,next.y-y);moving=distance>0;running=moving&&wantsRun;motionX=next.x-x;motionY=next.y-y;movementSpeed=dt>0?distance/dt:0;x=next.x;y=next.y;if(moving)walkingTime+=distance*.16/.55*(running&&paceEffects.animation?1.5:1);const k=cellKey(x,y);if(k!==nearbyKey){nearbyKey=k;loadNearby(x,y);}}else moving=false;
 }
 function sprite(c,name,row,col,px,py,height,grey=false){
  const image=images[name];if(!image)return false;const [sw,sh]=ART[name],width=height*sw/sh;c.save();if(grey)c.filter='grayscale(1)';c.drawImage(image,col*sw,row*sh,sw,sh,px-width/2,py-height,width,height);c.restore();return true;
@@ -259,10 +282,11 @@ function drawHydrantNames(c,scale,w,h){
  hydrantLabels=[];const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
  const sources=snapshot?.status==='idle'?selectObjectives(water,introSite,300,10):snapshot?.water||[],ratio=w/canvas.getBoundingClientRect().width,candidates=[];
  c.save();c.textAlign='center';c.font=`${11*ratio}px sans-serif`;c.fillStyle='#fff8e0';c.strokeStyle='#263e39';c.lineWidth=3*ratio;
- for(const source of sources){const a=w/2+(source.x-x)*scale,b=h/2-(source.y-y)*scale,distance=Math.hypot(source.x-x,source.y-y);if(distance>30||a<-30||a>w+30||b<-30||b>h+30)continue;candidates.push({name:source.n,distance,x:a,y:b+20*ratio,textY:b+24*ratio,width:c.measureText(source.n).width+6*ratio,height:16*ratio});}
+ for(const source of sources){const centre=sceneCenter(),a=w/2+(source.x-centre.x)*scale,b=h/2-(source.y-centre.y)*scale,distance=Math.hypot(source.x-x,source.y-y);if(distance>30||a<-30||a>w+30||b<-30||b>h+30)continue;candidates.push({name:source.n,distance,x:a,y:b+20*ratio,textY:b+24*ratio,width:c.measureText(source.n).width+6*ratio,height:16*ratio});}
  hydrantLabels=selectHydrantLabels(candidates);for(const q of hydrantLabels){c.strokeText(q.name,q.x,q.textY);c.fillText(q.name,q.x,q.textY);}c.restore();
 }
 function drawCommander(c,scale,w,h,bubbleOnly=false){
+ const {x,y}=sceneCenter();
  commanderRender={visible:false,bubble:'',lines:[]};const q=incident?.commander,image=images.commander_hd;if(!q||!image)return false;
  const a=w/2+(q.x-x)*scale,b=h/2-(q.y-y)*scale,ratio=w/canvas.getBoundingClientRect().width,height=spriteCssHeight*1.5*ratio,sw=height*94/200;
  if(a<0||a>w||b<0||b>h)return false;
@@ -283,7 +307,7 @@ function drawFire(c,fx,fy,ratio,isMini,frame){
 }
 function drawRace(c,scale,w,h,isMini=false){
   const snapshot=race?.getState(),site=snapshot?.site||introSite;if(!site)return;
-  const px=v=>w/2+(v-x)*scale,py=v=>h/2-(v-y)*scale,ratio=isMini?1:w/canvas.getBoundingClientRect().width;
+  const centre=sceneCenter(isMini),px=v=>w/2+(v-centre.x)*scale,py=v=>h/2-(v-centre.y)*scale,ratio=isMini?1:w/canvas.getBoundingClientRect().width;
   c.save();
   const fx=px(site.x),fy=py(site.y),frame=Math.floor(performance.now()/250),light=Math.floor(performance.now()/400)%2;
   if(!isMini&&introSite?.building){
@@ -402,7 +426,7 @@ function tickRace(dt){
   const notice=notices.at(performance.now());$('stolen-feedback').textContent=notice;$('stolen-feedback').hidden=!notice;
   if(s.status==='finished')finishRound();
 }
-function loop(now){const dt=previous?(now-previous)/1000:0;previous=now;update(dt);tickRace(dt);renderScene();requestAnimationFrame(loop);}
+function loop(now){const dt=previous?(now-previous)/1000:0;previous=now;update(dt);updatePace(dt);tickRace(dt);renderScene();requestAnimationFrame(loop);}
 const movementKeys=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','Shift',' ']);
 window.addEventListener('keydown',e=>{if(inputBlocked()||e.target.closest('select,input,summary,button'))return;const key=e.key.length===1?e.key.toLowerCase():e.key;if(movementKeys.has(key)){e.preventDefault();keys.add(key);}});
 window.addEventListener('keyup',e=>keys.delete(e.key.length===1?e.key.toLowerCase():e.key));
@@ -433,14 +457,14 @@ run.addEventListener('pointerup',endRun);
 for(const type of ['pointercancel','lostpointercapture'])run.addEventListener(type,e=>{if(e.pointerId===runPointer)clearInput();});
 run.addEventListener('contextmenu',e=>e.preventDefault());
 
-$('zoom-in').addEventListener('click',()=>{viewWidthMeters=Math.max(100,viewWidthMeters-25);zoom=width/viewWidthMeters;canvas.focus({preventScroll:true});});$('zoom-out').addEventListener('click',()=>{viewWidthMeters=Math.min(250,viewWidthMeters+25);zoom=width/viewWidthMeters;canvas.focus({preventScroll:true});});
+$('zoom-in').addEventListener('click',()=>{zoomTouched=true;viewWidthMeters=Math.max(50,viewWidthMeters-25);zoom=width/viewWidthMeters;canvas.focus({preventScroll:true});});$('zoom-out').addEventListener('click',()=>{zoomTouched=true;viewWidthMeters=Math.min(250,viewWidthMeters+25);zoom=width/viewWidthMeters;canvas.focus({preventScroll:true});});
 for(const b of document.querySelectorAll('[data-start-character]'))b.addEventListener('click',()=>{character=b.dataset.startCharacter;document.querySelectorAll('[data-start-character]').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));});
 $('settings').addEventListener('click',()=>{++arrival;ready=false;phase='select';race=null;introSite=null;$('mission-card').hidden=true;$('tutorial-card').hidden=true;$('intro').hidden=true;clearInput();updateConstructionUI();$('start-game').disabled=!bootstrapped;$('start-screen').showModal();$('start-game').focus();});
 $('start-screen').addEventListener('cancel',e=>e.preventDefault());
 $('start-game').addEventListener('click',async()=>{if(phase!=='select')return;if(!bootstrapped){await boot();return;}difficulty=['easy','normal','hard'].includes($('start-difficulty').value)?$('start-difficulty').value:'normal';tense=false;playMusic();$('start-game').disabled=true;await goStation($('start-station').value);$('start-game').disabled=false;});
 $('next-round').addEventListener('click',async()=>{if(phase!=='result')return;tense=false;phase='loading';playMusic();$('next-round').disabled=true;await goStation(station);$('next-round').disabled=false;});
 $('result-dialog').addEventListener('cancel',e=>e.preventDefault());
-Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,difficulty,tutorialStep,testRate,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteCssHeight,metersPerUnit,collisionRadius,commander:phase==='playing'&&incident?.commander?{...incident.commander,...commanderRender,lines:[...commanderRender.lines]}:null,hydrantLabels:hydrantLabels.map(q=>({...q})),joystick:{...joystick},runHeld,movementSpeed,music:music.getState(),race:race?.getState()||null,incident:incident?{crowdCount:Math.min(incident.people.length,crowdCount(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))),vehicles:incident.vehicles.map(v=>({...v})),people:incident.people.map(p=>({...p})),renderedSprites,crowdFactor}:null,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom,viewWidthMeters}),renderScene})});
+Object.defineProperty(window,'__game',{value:Object.freeze({getState:()=>({ready,phase,difficulty,tutorialStep,testRate,spawnName:station,nearestRoad:roadName,walkSpeed,runSpeed,spriteCssHeight,metersPerUnit,collisionRadius,pace:{running,walkingTime,effects:{...paceEffects},camera:{...camera},dust:dust.map(p=>({...p}))},commander:phase==='playing'&&incident?.commander?{...incident.commander,...commanderRender,lines:[...commanderRender.lines]}:null,hydrantLabels:hydrantLabels.map(q=>({...q})),joystick:{...joystick},runHeld,movementSpeed,music:music.getState(),race:race?.getState()||null,incident:incident?{crowdCount:Math.min(incident.people.length,crowdCount(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))),vehicles:incident.vehicles.map(v=>({...v})),people:incident.people.map(p=>({...p})),renderedSprites,crowdFactor}:null,x,y,direction,moving,character,station,loadedCells:[...cache.keys()],pendingCells:pending.size,zoom,viewWidthMeters}),renderScene})});
 async function boot(){
   $('start-game').disabled=true;
   try{

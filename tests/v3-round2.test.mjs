@@ -12,6 +12,6 @@ test('第二輪車身有效長度依人物高度，不隨世界縮放；停車�
  const shifted=ui.layoutVehicleSprites(vehicles.map(v=>({...v,x:v.x+17,y:v.y-33})),obstacles.map(v=>({...v,x:v.x+17,y:v.y-33})));placed.forEach((v,i)=>{assert.ok(Math.abs(shifted[i].x-v.x-17)<1e-7);assert.ok(Math.abs(shifted[i].y-v.y+33)<1e-7);});
 });
 test('第二輪只降低NPC速度至玩家跑速0.9倍，5秒出動與其他規則不變',()=>{
- assert.deepEqual(RULES,{roundSeconds:180,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:10,npcSpeedRatio:.9});
- let now=0;const race=createRace({sites:[{x:0,y:0,n:'火場',addr:'測試地址'}],roads:[{p:[-50,0,500,0],w:8}],water:[{x:200,y:0,k:'hydrant_above',n:'測試栓'}],stations:[{x:0,y:0}],clock:()=>now,config:{npcCount:1}});race.start(0);now=5000;race.tick(5,{x:-40,y:0});const a=race.getState().npcs[0];assert.equal(a.active,true);now=6000;race.tick(1,{x:-40,y:0});const b=race.getState().npcs[0];assert.ok(Math.abs(Math.hypot(b.x-a.x,b.y-a.y)-9)<1e-7);
+ assert.deepEqual(RULES,{roundSeconds:210,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:6,npcSpeedRatio:.9});
+ let now=0;const race=createRace({sites:[{x:0,y:0,n:'火場',addr:'測試地址'}],roads:[{p:[-50,0,500,0],w:8}],water:[{x:200,y:0,k:'hydrant_above',n:'測試栓'}],stations:[{x:0,y:0}],clock:()=>now,config:{npcCount:1}});race.start(0);now=5000;race.tick(5,{x:-40,y:0});const a=race.getState().npcs[0];assert.equal(a.active,true);now=6000;race.tick(1,{x:-40,y:0});const b=race.getState().npcs[0];assert.ok(Math.abs(Math.hypot(b.x-a.x,b.y-a.y)-RULES.runSpeed*RULES.npcSpeedRatio)<1e-7);
 });

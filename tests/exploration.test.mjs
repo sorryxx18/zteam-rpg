@@ -59,6 +59,20 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('v3.2 真實公尺速度走3跑6，NPC速度跟隨6乘0.9',async()=>{
+ const h=await harness({movementOnly:true});await h.click('start-game');const s=h.window.__game.getState();assert.equal(s.walkSpeed,3);assert.equal(s.runSpeed,6);assert.equal(h.box.RULES.runSpeed,6);assert.equal(h.box.RULES.npcSpeedRatio,.9);
+ h.events.keydown({key:'d',target:{closest:()=>null},preventDefault(){}});h.advance(200);assert.ok(Math.abs(h.window.__game.getState().x-s.x-.6)<1e-8);
+ h.events.keydown({key:'Shift',target:{closest:()=>null},preventDefault(){}});h.advance(400);assert.ok(Math.abs(h.window.__game.getState().x-s.x-1.8)<1e-8);
+});
+test('v3.2 手機預設80m、電腦175m，縮放50至250且保留手動選擇',async()=>{
+ for(const [viewport,expected]of [[[390,844],80],[[1200,800],175],[[1200,400],80]]){const h=await harness({viewport});assert.equal(h.window.__game.getState().viewWidthMeters,expected);await h.click('zoom-in');assert.equal(h.window.__game.getState().viewWidthMeters,expected-25);for(let i=0;i<12;i++)await h.click('zoom-in');assert.equal(h.window.__game.getState().viewWidthMeters,50);h.events.resize();assert.equal(h.window.__game.getState().viewWidthMeters,50);for(let i=0;i<12;i++)await h.click('zoom-out');assert.equal(h.window.__game.getState().viewWidthMeters,250);}
+});
+test('v3.2 跑步動畫1.5倍、腳塵淡出及鏡頭前帶各自可關閉，不改世界座標',async()=>{
+ const h=await harness({movementOnly:true,viewport:[390,844]});await h.click('start-game');const before=h.window.__game.getState();h.events.keydown({key:'d',target:{closest:()=>null},preventDefault(){}});h.events.keydown({key:'Shift',target:{closest:()=>null},preventDefault(){}});h.drawCalls.length=0;h.advance(200);let s=h.window.__game.getState();assert.ok(s.pace,'速度感唯讀快照');assert.ok(s.pace.running);assert.ok(s.pace.camera.x>0&&s.pace.camera.x<=12);assert.equal(s.pace.camera.y,0);assert.equal(s.pace.dust.length,1);assert.ok(Math.abs(s.pace.walkingTime-1.2*.16/.55*1.5)<1e-8);const player=h.drawCalls.find(c=>c[0]==='drawImage'&&c[1]?.url?.includes('/assets/rhino'));assert.ok(player[6]+player[8]/2<97.5,'玩家留在前帶鏡頭後方');assert.ok(Math.abs(s.x-before.x-1.2)<1e-8);
+ await h.click('pace-animation');await h.click('pace-dust');await h.click('pace-camera');const clock=s.pace.walkingTime;h.advance(400);s=h.window.__game.getState();assert.equal(s.pace.effects.animation,false);assert.equal(s.pace.effects.dust,false);assert.equal(s.pace.effects.camera,false);assert.equal(s.pace.dust.length,0);assert.equal(s.pace.camera.x,0);assert.ok(Math.abs(s.pace.walkingTime-clock-1.2*.16/.55)<1e-8);s.pace.effects.dust=true;s.pace.camera.x=999;assert.equal(h.window.__game.getState().pace.effects.dust,false);assert.equal(h.window.__game.getState().pace.camera.x,0);
+ await h.click('pace-dust');await h.click('pace-camera');h.advance(600);h.events.keyup({key:'d'});h.events.keyup({key:'Shift'});h.advance(800);h.advance(1000);h.advance(1200);s=h.window.__game.getState();assert.equal(s.pace.dust.length,0);assert.ok(Math.abs(s.pace.camera.x)<.1);assert.equal(s.pace.running,false);
+});
+test('v3.2 短橫式向下跑仍完整留在鏡頭內',async()=>{const h=await harness({movementOnly:true,viewport:[1200,400]});await h.click('start-game');for(const key of ['s','Shift'])h.events.keydown({key,target:{closest:()=>null},preventDefault(){}});h.advance(200);const s=h.window.__game.getState();assert.ok(100+s.pace.camera.y*s.zoom-s.spriteCssHeight/2>=0,'角色頭頂不可出畫面');});
 test('第四段：高清指揮官1.5倍人物、只對他平滑、氣泡在名稱層下方',async()=>{
  const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.advance(100);const s=h.window.__game.getState();assert.ok(s.commander?.visible);assert.equal(s.commander.heightCss,s.spriteCssHeight*1.5);const index=h.drawCalls.findIndex(c=>c[0]==='drawImage'&&c[1]?.url?.endsWith('commander_hd.png'));assert.ok(index>=0);const smoothing=h.drawCalls.slice(0,index).findLast(c=>c[0]==='set'&&c[1]==='imageSmoothingEnabled');assert.equal(smoothing[2],true);assert.ok(s.commander.lines.length<=2);assert.ok(s.commander.lines.every(s=>[...s].length<=14));const name=h.drawCalls.findIndex((c,i)=>i>index&&c[0]==='strokeText'&&c[1].includes('消防栓'));assert.ok(name>index);const bubble=h.drawCalls.findIndex(c=>c[0]==='fillText'&&c[1]===s.commander.lines[0]),lastArt=h.drawCalls.findLastIndex(c=>c[0]==='drawImage'&&c[1]?.url?.startsWith('./art/')&&!c[1].url.endsWith('commander_hd.png'));assert.ok(bubble>lastArt,'消防栓與車輛不可蓋住氣泡');
 });
@@ -81,15 +95,15 @@ test('追加：500m載入、10→14→18→22→26分波、公告排隊與標記
  await h.click('start-game');assert.equal(h.raceInputs[0].config.waves,true);assert.equal(h.raceInputs[0].config.targetRadius,500);assert.equal(h.window.__game.getState().race.total,10);h.advance(30000);assert.equal(h.window.__game.getState().race.total,14);assert.equal(h.elements.get('stolen-feedback').textContent,'📢 增援範圍擴大！新增 4 個消防栓');assert.ok(h.window.__game.getState().race.water.slice(-4).every(w=>w.openedAt===30));for(const [ms,n]of [[60000,18],[90000,22],[120000,26]]){h.advance(ms);assert.equal(h.window.__game.getState().race.total,n);}assert.match(h.elements.get('mission-rules').textContent,/5秒/);
 });
 test('追加：場景與停車全部在消防栓前畫，玩家最後；結算半旗但號碼維持11px',async()=>{
- const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();const images=h.drawCalls.filter(c=>c[0]==='drawImage').map(c=>c[1].url);const water=images.findIndex(v=>v.includes('water_icons'));assert.ok(water>images.findLastIndex(v=>/fire_engine|ladder_truck|ambulance|police_car|bystanders|fire_big|fire_small/.test(v)));assert.ok(images.findIndex(v=>v.includes('/assets/rhino'))>water);h.advance(180000);assert.ok(h.drawCalls.some(c=>c[0]==='scale'&&c[1]===.5&&c[2]===.5));assert.ok(h.drawCalls.some(c=>c[0]==='set'&&c[1]==='font'&&c[2]==='bold 11px sans-serif'));
+ const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();const images=h.drawCalls.filter(c=>c[0]==='drawImage').map(c=>c[1].url);const water=images.findIndex(v=>v.includes('water_icons'));assert.ok(water>images.findLastIndex(v=>/fire_engine|ladder_truck|ambulance|police_car|bystanders|fire_big|fire_small/.test(v)));assert.ok(images.findIndex(v=>v.includes('/assets/rhino'))>water);h.advance(210000);assert.ok(h.drawCalls.some(c=>c[0]==='scale'&&c[1]===.5&&c[2]===.5));assert.ok(h.drawCalls.some(c=>c[0]==='set'&&c[1]==='font'&&c[2]==='bold 11px sans-serif'));
 });
-test('v3 人群1.5m內只令玩家走跑乘0.6並飄借過，不改基準5與10',async()=>{
+test('v3 人群1.5m內只令玩家走跑乘0.6並飄借過，不改基準3與6',async()=>{
  const h=await harness({movementOnly:true}),layout=h.box.createIncident,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊');h.box.createIncident=o=>({...layout(o),people:[{x:home.x,y:home.y}]});
- await h.click('start-game');const get=()=>h.window.__game.getState();assert.ok(Math.hypot(get().x-home.x,get().y-home.y)<1.5);const start=get().x;h.frames.shift()(1000);h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.3)<1e-8);assert.equal(get().incident.crowdFactor,.6);assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]==='借過借過'));
- h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});h.frames.shift()(1200);assert.ok(Math.abs(get().x-start-.9)<1e-8);assert.ok(Math.abs(get().movementSpeed-6)<1e-8);assert.equal(get().walkSpeed,5);assert.equal(get().runSpeed,10);
+ await h.click('start-game');const get=()=>h.window.__game.getState();assert.ok(Math.hypot(get().x-home.x,get().y-home.y)<1.5);const start=get().x;h.frames.shift()(1000);h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.18)<1e-8);assert.equal(get().incident.crowdFactor,.6);assert.ok(h.drawCalls.some(v=>v[0]==='fillText'&&v[1]==='借過借過'));
+ h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});h.frames.shift()(1200);assert.ok(Math.abs(get().x-start-.54)<1e-8);assert.ok(Math.abs(get().movementSpeed-3.6)<1e-8);assert.equal(get().walkSpeed,3);assert.equal(get().runSpeed,6);
 });
 test('v3 原圖綠旗、灰旗與被NPC佔領水源旁停車，與NPC目標框分開',async()=>{
- const h=await harness(),make=h.box.createRace,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊'),fetch=h.box.fetch;h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[[home.x+20,home.y,'hydrant_above'],[home.x+40,home.y,'hydrant_under']]}:fetch(url);h.box.createRace=o=>{const m=make(o);return {...m,getState:()=>{const s=m.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?'player':'npc1'}))};}};};await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();
+ const h=await harness({viewport:[1200,800]}),make=h.box.createRace,home=JSON.parse(await readFile(new URL('data/base.json',root))).stations.find(s=>s.name==='莊敬分隊'),fetch=h.box.fetch;h.box.fetch=async url=>url.includes('/w/')&&!url.endsWith('index.json')?{ok:true,json:async()=>[[home.x+20,home.y,'hydrant_above'],[home.x+40,home.y,'hydrant_under']]}:fetch(url);h.box.createRace=o=>{const m=make(o);return {...m,getState:()=>{const s=m.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?'player':'npc1'}))};}};};await h.click('start-game');h.drawCalls.length=0;h.window.__game.renderScene();
  assert.equal(h.drawCalls.filter(v=>v[0]==='drawImage'&&v[1].url?.includes('/art/rhino_flag.png')).length,2);assert.ok(h.drawCalls.some(v=>v[0]==='set'&&v[1]==='filter'&&v[2]==='grayscale(1)'));assert.equal(h.drawCalls.filter(v=>v[0]==='drawImage'&&v[1].url?.includes('/art/fire_engine.png')).length,3);
 });
 test('v3 指定原圖繪製火場、群眾與雙消防栓，場景不增加碰撞且手機限60物件',async()=>{
@@ -110,10 +124,10 @@ test('v3 末30秒紅框與音樂加速，加分事件顯示連擊及截胡',asyn
  const h=await harness();const create=h.box.createRace;let events=[];h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>({...m.getState(),remaining:30}),tick(){},drainEvents:()=>events.splice(0)};};await h.click('start-game');events.push({type:'capture',waterId:0,waterName:'測試消防栓',combo:2,comboBonus:1,interceptBonus:1});h.advance(100);assert.ok(h.calls.includes('state:tense'));assert.match(h.elements.get('intercept-feedback').textContent,/截胡/);assert.equal(h.elements.get('intercept-feedback').hidden,false);assert.ok(h.drawCalls.some(c=>c[0]==='fillText'&&String(c[1]).includes('連擊×2')));assert.match(h.source,/classList\.add\('urgent'\)/);
 });
 test('v3 右上只留單排工具，縮放收進設定，兩種消防栓放大且圖形不同',async()=>{
- const h=await harness();const tools=h.html.match(/class="tools">([^]*?)<\/div>/)[1];assert.doesNotMatch(tools,/id="zoom-/);assert.match(h.html,/id="music-settings-dialog"[^]*?id="zoom-in"/);await h.click('start-game');h.advance(180000);assert.ok(h.drawCalls.some(c=>c[0]==='rect'&&c[1]===-12&&c[2]===-12&&c[3]===24));
+ const h=await harness();const tools=h.html.match(/class="tools">([^]*?)<\/div>/)[1];assert.doesNotMatch(tools,/id="zoom-/);assert.match(h.html,/id="music-settings-dialog"[^]*?id="zoom-in"/);await h.click('start-game');h.advance(210000);assert.ok(h.drawCalls.some(c=>c[0]==='rect'&&c[1]===-12&&c[2]===-12&&c[3]===24));
 });
 test('v3 結算地圖依本題實際範圍放大，不用固定大範圍把目標擠成一團',async()=>{
- const h=await harness();await h.click('start-game');h.advance(180000);const at=h.drawCalls.findLastIndex(c=>c[0]==='arc'&&c[3]===6),centres=h.drawCalls.slice(at+1).filter(c=>c[0]==='translate');assert.ok(centres.length>=3);const xs=centres.map(c=>c[1]);assert.ok(Math.max(...xs)-Math.min(...xs)>600,'780px測試畫布應充分展開本題249m寬的消防栓，而非固定640m留白');
+ const h=await harness();await h.click('start-game');h.advance(210000);const at=h.drawCalls.findLastIndex(c=>c[0]==='arc'&&c[3]===6),centres=h.drawCalls.slice(at+1).filter(c=>c[0]==='translate');assert.ok(centres.length>=3);const xs=centres.map(c=>c[1]);assert.ok(Math.max(...xs)-Math.min(...xs)>600,'780px測試畫布應充分展開本題249m寬的消防栓，而非固定640m留白');
 });
 test('v3 結算以含加分總分為主、星等只算佔領率，清單每局收合且從頂部顯示',async()=>{
  const h=await harness();let finished=false;const create=h.box.createRace;
@@ -139,11 +153,11 @@ test('B2 真模型施工首幀鎖住、取消原地不重啟，離開3m再回來
  assert.ok(get().race.construction);assert.equal(get().race.captured,0);assert.equal(h.elements.get('construction-panel').hidden,false);
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});h.advance(time+=100);assert.equal(get().x,start);assert.equal(get().moving,false);
  await h.click('construction-cancel');h.advance(time+=100);h.advance(time+=100);assert.equal(get().race.construction,null);assert.equal(get().race.totalHoses,0);
- h.events.keydown({target:{closest:()=>null},key:'a',preventDefault(){}});for(let i=0;i<9;i++)h.advance(time+=100);h.events.keyup({key:'a'});assert.ok(start-get().x>3);
- h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});for(let i=0;i<9&&!get().race.construction;i++)h.advance(time+=100);
+ h.events.keydown({target:{closest:()=>null},key:'a',preventDefault(){}});for(let i=0;i<20;i++)h.advance(time+=100);h.events.keyup({key:'a'});assert.ok(start-get().x>3);
+ h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});for(let i=0;i<20&&!get().race.construction;i++)h.advance(time+=100);
  assert.ok(get().race.construction);const hoses=get().race.construction.hoses;for(let i=0;i<65&&get().race.construction;i++)h.advance(time+=100);
  assert.equal(get().race.captured,1);assert.equal(get().race.totalHoses,hoses);assert.equal(h.elements.get('construction-panel').hidden,true);assert.equal(h.elements.get('construction-progress').value,0);assert.equal(get().moving,false);
- h.advance(180000);assert.equal(get().phase,'result');assert.equal(h.elements.get('construction-panel').hidden,true);
+ h.advance(210000);assert.equal(get().phase,'result');assert.equal(h.elements.get('construction-panel').hidden,true);
 });
 test('B2 三難度真正傳模型並對齊台數與非瞬插文案',async()=>{
  for(const [difficulty,count] of [['easy',2],['normal',3],['hard',4]]){const h=await harness({autoIntro:false});h.elements.get('start-difficulty').value=difficulty;await h.click('start-game');assert.equal(h.raceInputs[0].config.difficulty,difficulty);assert.match(h.elements.get('mission-rules').textContent,new RegExp(`${count}台`));assert.match(h.html,new RegExp(`value="${difficulty}"[^>]*>[^<]*${count}台`));assert.doesNotMatch(h.html,/3m 內自動插旗/);await h.skipPrelude();h.advance(2000);const s=h.window.__game.getState().race;assert.equal(s.difficulty,difficulty);assert.equal(s.npcs.length,count);}
@@ -172,9 +186,9 @@ test('v3 真地格按難度保留原走廊與pin，所有車改在250～300m真�
   const loadedGraph=buildRoadGraph(input.roads,{buildings:input.buildings});
   const edgeKey=e=>[e.a.id,e.b.id].sort().join('|'),loadedEdges=new Set(loadedGraph.edges.map(edgeKey));
   assert.ok(graph.edges.length>0);for(const edge of graph.edges)assert.ok(loadedEdges.has(edgeKey(edge)),`original corridor edge ${edgeKey(edge)}`);
-  assert.equal(s.race.status,'idle');assert.equal(s.race.remaining,180,'loading must not start round clock');
+  assert.equal(s.race.status,'idle');assert.equal(s.race.remaining,210,'loading must not start round clock');
   await h.skipPrelude();h.advance(h.box.performance.now()+2000);
-  const playing=h.window.__game.getState();assert.equal(playing.phase,'playing');assert.equal(playing.race.remaining,180);assert.equal(playing.race.npcs.length,count);
+  const playing=h.window.__game.getState();assert.equal(playing.phase,'playing');assert.equal(playing.race.remaining,210);assert.equal(playing.race.npcs.length,count);
   for(let i=0;i<count;i++){const npc=playing.race.npcs[i],projected=shortestRoute(graph,npc,npc),d=Math.hypot(npc.x-site.x,npc.y-site.y);assert.ok(projected);assert.ok(Math.hypot(npc.x-projected.points[0].x,npc.y-projected.points[0].y)<1e-7,'on unchanged original road');assert.ok(d>=250-1e-7&&d<=300+1e-7);assert.ok(input.canStand(npc.x,npc.y));assert.equal(npc.active,false);for(const other of playing.race.npcs.slice(0,i))assert.ok(Math.hypot(npc.x-other.x,npc.y-other.y)>1); }
  }
 });
@@ -211,7 +225,7 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
- assert.ok(imports.every(path=>path.endsWith('?v=6v3h')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v32')),imports.join(', '));
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -310,33 +324,33 @@ test('v2 重選中止前奏並清除卡片，再次出勤記住教學，storage�
 test('v2 出勤卡三秒與首次三步教學結束之前不啟動計時且鎖輸入',async()=>{
  const h=await harness({autoIntro:false}),get=()=>h.window.__game.getState();await h.click('start-game');
  assert.equal(get().phase,'mission');assert.match(h.elements.get('mission-detail').textContent,/測試場所.*測試路1號/);
- assert.match(h.elements.get('mission-rules').textContent,/3分鐘.*5秒/);
+ assert.match(h.elements.get('mission-rules').textContent,/3分30秒.*5秒/);
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});const x=get().x;
  h.advance(2999);assert.equal(get().phase,'mission');assert.equal(get().x,x);assert.equal(get().race.status,'idle');
  h.advance(3000);assert.equal(get().phase,'tutorial');
  for(let i=0;i<3;i++){assert.equal(get().tutorialStep,i);await h.click('tutorial-next');}
  assert.equal(h.storage.get('rhino-tutorial-v2'),'done');assert.equal(get().phase,'intro');
  h.advance(4999);assert.equal(get().phase,'intro');assert.equal(get().race.status,'idle');
- h.advance(5000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,180);assert.ok(get().race.npcs.every(n=>!n.active));
+ h.advance(5000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,210);assert.ok(get().race.npcs.every(n=>!n.active));
 });
 test('v2 難度預設普通且保存選角分隊選擇',async()=>{
   const h=await harness();assert.equal(h.window.__game.getState().difficulty,'normal');
   h.elements.get('start-difficulty').value='hard';await h.click('start-game');
   assert.equal(h.window.__game.getState().difficulty,'hard');
 });
-test('本機五倍速流程仍有真兩秒intro，30秒轉緊張、36秒結算；公開query維持180秒',async()=>{
+test('本機五倍速流程仍有真兩秒intro，36秒轉緊張、42秒結算；公開query維持210秒',async()=>{
   for(const [url,rate] of [['http://localhost:8000/?test=1',5],['https://preview.example/?test=1',1],['http://localhost:8000/',1]]){
     const h=await harness({location:new URL(url),autoIntro:false}),get=()=>h.window.__game.getState();
     const nativeNow=h.box.performance.now;
     await h.click('start-game');assert.equal(get().testRate,rate);await h.skipPrelude();
     h.advance(1999);assert.equal(get().phase,'intro');
-    h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,180);
-    h.advance(2000+149000/rate);assert.equal(get().race.remaining,31);assert.ok(!h.calls.includes('state:tense'));
-    h.advance(2000+150000/rate);assert.equal(get().race.remaining,30);assert.ok(h.calls.includes('state:tense'));
-    h.advance(2000+179000/rate);assert.equal(get().phase,'playing');
-    h.advance(2000+180000/rate);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
+    h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,210);
+    h.advance(2000+179000/rate);assert.equal(get().race.remaining,31);assert.ok(!h.calls.includes('state:tense'));
+    h.advance(2000+180000/rate);assert.equal(get().race.remaining,30);assert.ok(h.calls.includes('state:tense'));
+    h.advance(2000+209000/rate);assert.equal(get().phase,'playing');
+    h.advance(2000+210000/rate);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
     assert.equal(h.box.performance.now,nativeNow,'不覆寫全域時鐘');
-    assert.equal(h.box.performance.now(),2000+180000/rate,'牆鐘始終保持原始毫秒');
+    assert.equal(h.box.performance.now(),2000+210000/rate,'牆鐘始終保持原始毫秒');
     assert.deepEqual(Object.keys(h.window.__game).sort(),['getState','renderScene']);
   }
 });
@@ -370,14 +384,14 @@ test('本機快轉只乘玩家speed，保留原始dt、250ms卡頓丟棄與15cm�
     };
     await h.click('start-game');await h.skipPrelude();h.advance(2000);h.advance(3000);const start=get().x;
     h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});
-    h.advance(3100);assert.deepEqual(moves.at(-1),{dt:.1,speed:25});
+    h.advance(3100);assert.deepEqual(moves.at(-1),{dt:.1,speed:15});
     if(wall)assert.ok(get().x>start&&get().x<=start+.18,'圓形占地停在細牆前');
-    else assert.ok(Math.abs(get().x-start-2.5)<1e-8,'10FPS原始dt不因快轉超過卡頓門檻');
+    else assert.ok(Math.abs(get().x-start-1.5)<1e-8,'10FPS原始dt不因快轉超過卡頓門檻');
     h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});
-    h.advance(3200);assert.deepEqual(moves.at(-1),{dt:.1,speed:50});
-    if(wall)assert.ok(get().x<=start+.18);else assert.ok(Math.abs(get().x-start-7.5)<1e-8);
-    const x=get().x;h.advance(4000);assert.equal(get().x,x,'原始800ms卡頓不得追趕');assert.equal(get().race.remaining,170);
-    assert.equal(get().walkSpeed,5);assert.equal(get().runSpeed,10);assert.equal(get().collisionRadius,.32);
+    h.advance(3200);assert.deepEqual(moves.at(-1),{dt:.1,speed:30});
+    if(wall)assert.ok(get().x<=start+.18);else assert.ok(Math.abs(get().x-start-4.5)<1e-8);
+    const x=get().x;h.advance(4000);assert.equal(get().x,x,'原始800ms卡頓不得追趕');assert.equal(get().race.remaining,200);
+    assert.equal(get().walkSpeed,3);assert.equal(get().runSpeed,6);assert.equal(get().collisionRadius,.32);
   }
 });
 test('只有本機啟用時持續明示本機測試×5，提示逾時仍保留，公開與footer不受污染',async()=>{
@@ -387,18 +401,18 @@ test('只有本機啟用時持續明示本機測試×5，提示逾時仍保留�
     await h.click('start-game');assert.equal(text().includes('本機測試 ×5'),enabled);await h.skipPrelude();
     h.advance(2000);assert.equal(text().includes('本機測試 ×5'),enabled);
     h.timers.at(-1)();assert.equal(text(),enabled?'本機測試 ×5':'');
-    h.advance(enabled?38000:182000);assert.equal(text().includes('本機測試 ×5'),enabled);
+    h.advance(enabled?44000:212000);assert.equal(text().includes('本機測試 ×5'),enabled);
     assert.equal(h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,''),'僅供遊戲，非搶救圖資・© OpenStreetMap© 2026 Leif Huang. All rights reserved.');
   }
 });
-test('出勤卡與教學後顯示兩秒地址鏡頭，之後才開始完整三分鐘真時間',async()=>{
+test('出勤卡與教學後顯示兩秒地址鏡頭，之後才開始完整三分半鐘真時間',async()=>{
   const h=await harness({autoIntro:false});await h.click('start-game');const get=()=>h.window.__game.getState();
   await h.skipPrelude();
   assert.equal(get().phase,'intro');assert.match(h.elements.get('intro-address').textContent,/測試路1號/);
   h.advance(1999);assert.equal(get().phase,'intro');
-  h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,180);
-  await h.click('overview-open');h.advance(122000);assert.equal(Math.ceil(get().race.remaining),60);
-  h.advance(182000);assert.equal(get().phase,'result');assert.equal(h.elements.get('result-dialog').open,true);
+  h.advance(2000);assert.equal(get().phase,'playing');assert.equal(get().race.remaining,210);
+  await h.click('overview-open');h.advance(152000);assert.equal(Math.ceil(get().race.remaining),60);
+  h.advance(212000);assert.equal(get().phase,'result');assert.equal(h.elements.get('result-dialog').open,true);
   assert.equal(get().moving,false);assert.ok(h.elements.get('result-list').textContent.includes('測試路口地上消防栓'));
 });
 
@@ -435,7 +449,7 @@ test('真音樂模型結算自然結束或尚未播放時只切靜音，不誤�
   const player=createMusicPlayer({audioContextFactory:()=>ctx,document:new EventTarget(),storage:{getItem:()=>null,setItem(){}},fetch:async url=>({ok:true,arrayBuffer:async()=>{const bytes=wavs.get(String(url));return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);}})});
   const h=await harness({musicPlayer:player});h.window.__game.renderScene();
   assert.equal(h.elements.get('music-toggle').textContent,'靜音');
-  await h.click('start-game');h.advance(182000);await h.settle();
+  await h.click('start-game');h.advance(212000);await h.settle();
   assert.equal(player.getState().state,'result');assert.equal(sources.at(-1).loop,false);
   sources.at(-1).onended();h.window.__game.renderScene();
   assert.equal(player.getState().playing,false);assert.equal(player.getState().error,null);
@@ -443,20 +457,20 @@ test('真音樂模型結算自然結束或尚未播放時只切靜音，不誤�
   const count=sources.length;await h.click('music-toggle');assert.equal(player.getState().muted,true);assert.equal(sources.length,count);
   await h.click('music-toggle');assert.equal(player.getState().muted,false);assert.equal(sources.length,count);
 });
-test('真實1m/unit與.32m碰撞不變，走5跑10且實際位移正確',async()=>{
+test('真實1m/unit與.32m碰撞不變，走3跑6且實際位移正確',async()=>{
   const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
-  assert.equal(get().walkSpeed,5);assert.equal(get().runSpeed,10);
-  assert.equal(get().viewWidthMeters,175);
+  assert.equal(get().walkSpeed,3);assert.equal(get().runSpeed,6);
+  assert.equal(get().viewWidthMeters,80);
   assert.equal(get().metersPerUnit,1);assert.equal(get().collisionRadius,.32);
   const start=get().x;h.frames.shift()(1000);
   h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});
-  h.frames.shift()(1050);assert.ok(Math.abs(get().x-start-.25)<1e-8);
+  h.frames.shift()(1050);assert.ok(Math.abs(get().x-start-.15)<1e-8);
   h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});
-  h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.75)<1e-8);
+  h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.45)<1e-8);
   h.events.keyup({key:'d'});h.frames.shift()(1150);assert.equal(get().moving,false);
   assert.match(h.source,/walkingTime\+=distance/);
 });
-test('遊戲迴圈十秒走50m跑100m，60/20/10FPS與半推均一致',async()=>{
+test('遊戲迴圈十秒走30m跑60m，60/20/10FPS與半推均一致',async()=>{
   for(const fps of [60,20,10])for(const running of [false,true])for(const half of [false,true]){
     const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
     const stick=h.elements.get('joystick');stick.getBoundingClientRect=()=>({left:40,top:200,width:128,height:128});
@@ -464,7 +478,7 @@ test('遊戲迴圈十秒走50m跑100m，60/20/10FPS與半推均一致',async()=>
     if(running)h.elements.get('run').listeners.pointerdown({pointerId:2,preventDefault(){}});
     const start=get().x;h.frames.shift()(1000);
     for(let i=1;i<=fps*10;i++)h.frames.shift()(1000+i*1000/fps);
-    assert.ok(Math.abs(get().x-start-(running?100:50)*(half?.5:1))<1e-8,`${fps} FPS running=${running} half=${half}`);
+    assert.ok(Math.abs(get().x-start-(running?60:30)*(half?.5:1))<1e-8,`${fps} FPS running=${running} half=${half}`);
   }
 });
 
@@ -477,7 +491,7 @@ test('手機左搖桿保留半推走速、deadzone、圓形clamp且放開即停'
   h.frames.shift()(1000);const start=get().x;
   send('pointerdown',7,126,264); // 22 / 44 = .5
   assert.equal(get().joystick.active,true);assert.equal(get().joystick.x,.5);
-  h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.25)<1e-8);
+  h.frames.shift()(1100);assert.ok(Math.abs(get().x-start-.15)<1e-8);
   send('pointermove',8,60,264);assert.equal(get().joystick.x,.5); // foreign pointer
   send('pointermove',7,106,264);h.frames.shift()(1200);assert.equal(get().moving,false);
   send('pointermove',7,200,160);assert.ok(Math.abs(Math.hypot(get().joystick.x,get().joystick.y)-1)<1e-9);
@@ -497,9 +511,9 @@ test('兩指任意順序按住跑，跑單按不動、放跑恢復走、放左�
     send('joystick','pointerdown',1);
     if(!runFirst)send('run','pointerdown',2);
     assert.equal(get().runHeld,true);
-    h.frames.shift()(1200);assert.ok(Math.abs(get().x-start-(runFirst?1:2))<1e-8);assert.ok(Math.abs(get().movementSpeed-10)<1e-8);
+    h.frames.shift()(1200);assert.ok(Math.abs(get().x-start-(runFirst?.6:1.2))<1e-8);assert.ok(Math.abs(get().movementSpeed-6)<1e-8);
     send('run','pointerup',99);assert.equal(get().runHeld,true);
-    send('run','pointerup',2);h.frames.shift()(1300);assert.ok(Math.abs(get().movementSpeed-5)<1e-8);assert.equal(get().runHeld,false);
+    send('run','pointerup',2);h.frames.shift()(1300);assert.ok(Math.abs(get().movementSpeed-3)<1e-8);assert.equal(get().runHeld,false);
     send('run','pointerdown',3);send('joystick','pointerup',1);h.frames.shift()(1400);assert.equal(get().moving,false);assert.equal(get().movementSpeed,0);
     send('run','pointerup',3);h.frames.shift()(1500);assert.equal(get().runHeld,false);
   }
@@ -536,18 +550,18 @@ test('遊戲使用共享.32m圓形碰撞占地及同尺度陰影，細牆前可�
   assert.ok(h.drawCalls.some(c=>c[0]==='ellipse'&&Math.abs(c[3]-get().zoom*.32)<1e-10&&Math.abs(c[4]-get().zoom*.32/2)<1e-10));
 });
 
-test('五手機尺寸與電腦保持175m橫寬，縮放限制100~250m，resize保留視寬且比例尺正確',async()=>{
+test('五手機尺寸與電腦分別80m與175m橫寬，縮放限制50~250m，resize保留視寬且比例尺正確',async()=>{
   for(const viewport of [[320,568],[375,667],[390,844],[844,390],[667,375],[1280,800]]){
     const h=await harness({viewport});await h.click('start-game');const get=()=>h.window.__game.getState();
-    const width=h.elements.get('game').width;
-    assert.equal(get().viewWidthMeters,175);assert.ok(Math.abs(width/get().zoom-175)<1e-9);
+    const expected=viewport[0]===1280?175:80;const width=h.elements.get('game').width;
+    assert.equal(get().viewWidthMeters,expected);assert.ok(Math.abs(width/get().zoom-expected)<1e-9);
     h.frames.shift()(1000);
     const rulerMetres=parseFloat(h.elements.get('scale-label').textContent),rulerPixels=parseFloat(h.elements.get('scale-line').style.slice(6));
-    assert.ok(Math.abs(rulerPixels-rulerMetres*viewport[0]/175)<1e-9);
+    assert.ok(Math.abs(rulerPixels-rulerMetres*viewport[0]/expected)<1e-9);
     assert.ok(rulerPixels>=40&&rulerPixels<=100);
-    await h.click('zoom-in');assert.equal(get().viewWidthMeters,150);
-    for(let i=0;i<20;i++)await h.click('zoom-in');assert.equal(get().viewWidthMeters,100);
-    await h.click('zoom-out');assert.equal(get().viewWidthMeters,125);
+    await h.click('zoom-in');assert.equal(get().viewWidthMeters,expected-25);
+    for(let i=0;i<20;i++)await h.click('zoom-in');assert.equal(get().viewWidthMeters,50);
+    await h.click('zoom-out');assert.equal(get().viewWidthMeters,75);
     for(let i=0;i<20;i++)await h.click('zoom-out');assert.equal(get().viewWidthMeters,250);
     h.elements.get('game').getBoundingClientRect=()=>({width:1001,height:500});h.events.resize();
     assert.equal(get().viewWidthMeters,250);assert.equal(get().zoom,h.elements.get('game').width/250);
@@ -607,7 +621,7 @@ test('設定不疊其他modal，到期先關設定再結算且再一題可繼續
   await h.click('start-game');await h.click('overview-open');await h.click('music-settings');assert.equal(h.elements.get('music-settings-dialog').open,false);
   await h.click('overview-close');await h.click('music-settings');assert.equal(h.elements.get('music-settings-dialog').open,true);
   const result=h.elements.get('result-dialog'),show=result.showModal;result.showModal=function(){assert.equal(h.elements.get('music-settings-dialog').open,false,'先關設定');show.call(this);};
-  h.advance(182000);assert.equal(h.window.__game.getState().phase,'result');assert.equal(result.open,true);
+  h.advance(212000);assert.equal(h.window.__game.getState().phase,'result');assert.equal(result.open,true);
   await h.click('music-settings');assert.equal(h.elements.get('music-settings-dialog').open,false);
   await h.click('next-round');assert.equal(h.window.__game.getState().phase,'mission');await h.skipPrelude();h.advance(304000);assert.equal(h.window.__game.getState().phase,'playing');
 });
@@ -616,7 +630,7 @@ test('頂部只有設定入口，音樂靜音收進設定且無曲目選單或�
   const h=await harness(),header=h.html.match(/<header[^>]*>(.*?)<\/header>/s)[1];
   assert.equal((header.match(/<button/g)||[]).length,1);assert.match(header,/id="music-settings"[^>]*>設定<\/button>/);assert.doesNotMatch(header,/music-toggle|music-track/);
   const settings=h.html.match(/<dialog id="music-settings-dialog"[^>]*>(.*?)<\/dialog>/s)?.[1];
-  assert.ok(settings,'音樂與縮放在獨立設定內');assert.equal((settings.match(/<button/g)||[]).length,4);assert.match(settings,/id="zoom-in"/);assert.match(settings,/id="zoom-out"/);
+  assert.ok(settings,'音樂與縮放在獨立設定內');assert.equal((settings.match(/<button/g)||[]).length,7);assert.match(settings,/id="zoom-in"/);assert.match(settings,/id="zoom-out"/);
   assert.match(settings,/id="music-toggle"/);assert.match(settings,/id="music-settings-close"/);
   assert.doesNotMatch(h.html,/id="(?:music-track|home)"/);
   const footer=h.html.match(/<footer>(.*?)<\/footer>/s)[1].replace(/<[^>]+>/g,'');
@@ -666,13 +680,13 @@ test('整局道路走廊超過25格仍完整保留預載範圍',async()=>{
 });
 test('佔領提示音、緊張與結果音樂、完整地圖對照與新場所再一題',async()=>{
   const h=await harness({autoIntro:false});await h.click('start-game');await h.skipPrelude();h.advance(2000);assert.ok(!h.calls.includes('cue:capture'));h.advance(3000);assert.ok(h.calls.includes('cue:capture'));
-  h.advance(152000);assert.ok(h.calls.includes('state:tense'));
+  h.advance(182000);assert.ok(h.calls.includes('state:tense'));
   assert.ok(h.calls.includes('cue:lost'));assert.ok(h.calls.includes('cue:horn'));
-  h.advance(182000);assert.ok(h.calls.includes('state:result'));const old=h.window.__game.getState().race.site;
+  h.advance(212000);assert.ok(h.calls.includes('state:result'));const old=h.window.__game.getState().race.site;
   assert.match(h.elements.get('result-list').textContent,/犀牛綠旗/);assert.match(h.elements.get('result-list').textContent,/未找到/);
   assert.ok(h.drawCalls.some(a=>a[0]==='fillText'&&a[1]==='2'));
   await h.click('next-round');assert.equal(h.window.__game.getState().phase,'mission');await h.skipPrelude();h.advance(304000);
-  assert.notEqual(h.window.__game.getState().race.site.n,old.n);assert.equal(h.window.__game.getState().race.remaining,180);
+  assert.notEqual(h.window.__game.getState().race.site.n,old.n);assert.equal(h.window.__game.getState().race.remaining,210);
 });
 test('建立真競賽模型時傳入所有已載入地格的道路與建物幾何',async()=>{
   const h=await harness({realData:true});await h.click('start-game');
@@ -683,12 +697,12 @@ test('建立真競賽模型時傳入所有已載入地格的道路與建物幾�
   assert.deepEqual(polygons(Array.from(geometry.roads)),polygons(cells.flatMap(c=>c.roads||[])));
   assert.equal(h.window.__game.getState().phase,'playing');
 });
-test('真實三題資料與道路、建物碰撞完整整合至三分鐘結果（桌機及手機）',async()=>{
+test('真實三題資料與道路、建物碰撞完整整合至三分半鐘結果（桌機及手機）',async()=>{
   for(const viewport of [[1280,800],[390,844]])for(let initialSite=0;initialSite<3;initialSite++){
     const h=await harness({realData:true,initialSite,viewport});await h.click('start-game');const get=()=>h.window.__game.getState();
     assert.equal(get().phase,'playing');assert.ok(get().race.total>=3);assert.ok(Math.abs(Math.hypot(get().x-get().race.site.x,get().y-get().race.site.y)-30)<1e-8);
-    for(let seconds=20;seconds<180;seconds+=20){h.drawCalls.length=0;h.advance(seconds*1000);assert.equal(get().phase,'playing');assert.ok(get().race.npcs.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));}
-    h.advance(180000);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
+    for(let seconds=20;seconds<210;seconds+=20){h.drawCalls.length=0;h.advance(seconds*1000);assert.equal(get().phase,'playing');assert.ok(get().race.npcs.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));}
+    h.advance(210000);assert.equal(get().phase,'result');assert.equal(get().race.remaining,0);
     assert.equal(h.elements.get('result-list').textContent.split('\n').length,get().race.total);
     assert.ok(get().race.water.some(a=>a.owner?.startsWith('npc')),'實際道路可到水源，不是空轉消防車');
   }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {RULES,createRace,buildRoadGraph} from '../race.mjs';
-const speed=10*RULES.npcSpeedRatio;
+const speed=RULES.runSpeed*RULES.npcSpeedRatio;
 const away={x:-999,y:-999};
 function setup({source={x:40,y:6},roads=[{p:[0,0,80,0],w:8}],buildings=[],canStand=()=>true,water}={}){
  let now=0;const race=createRace({sites:[{n:'演練',addr:'測試',x:0,y:0}],water:water??[{n:'水源',k:'hydrant_above',...source}],stations:[{x:0,y:0}],roads,buildings,canStand,clock:()=>now,config:{npcCount:1,npcDelaySeconds:0}});
@@ -30,7 +30,7 @@ test('curb endpoint must satisfy canStand',()=>{
  const {at}=setup({canStand:(x,y)=>y<2.9});assert.equal(at(100).water[0].owner,null);
 });
 test('polyline end uses bounded original road capsule, not an unlimited centreline extension',()=>{
- const legal=setup({source:{x:86,y:0}});let s=legal.at(83/speed);assert.ok(Math.abs(s.npcs[0].x-83)<1e-8);assert.equal(s.npcs[0].construction.elapsed,0);assert.ok(s.npcs[0].x-80+.32<=4);assert.equal(legal.at(13).water[0].owner,'npc1');
+ const legal=setup({source:{x:86,y:0}});let s=legal.at(83/speed);assert.ok(Math.abs(s.npcs[0].x-83)<1e-8);assert.equal(s.npcs[0].construction.elapsed,0);assert.ok(s.npcs[0].x-80+.32<=4);assert.equal(legal.at(83/speed+2.5).water[0].owner,'npc1');
  const illegal=setup({source:{x:90,y:0}});s=illegal.at(100);assert.equal(s.water[0].owner,null);assert.equal(s.npcs[0].target,null);
 });
 test('quantized graph vertices cannot expand the original road capsule',()=>{
@@ -46,5 +46,5 @@ test('after curb construction and cooldown the next route integrates its return 
  let s=at(43/speed+4.5);assert.equal(s.water[0].owner,'npc1');assert.equal(s.npcs[0].y,3);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);
  s=at(44/speed+4.5);assert.ok(Math.abs(s.npcs[0].y-2)<1e-8);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.equal(s.npcs[0].construction,null);
  s=at(46/speed+4.5);assert.ok(Math.abs(s.npcs[0].y)<1e-8);assert.ok(Math.abs(s.npcs[0].x-40)<1e-8);assert.equal(s.water[1].owner,null);
- assert.equal(at(18).water[1].owner,'npc1');
+ assert.equal(at(73/speed+6.5).water[1].owner,'npc1');
 });

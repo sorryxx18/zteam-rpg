@@ -95,7 +95,7 @@ export function createNavigator({roads=[],buildings=[],cellKeys=null,cellSize=50
  };
  return {canStand,clear,route};
 }
-export function walkToward(position,target,dt,canStand,speed=10,clear=()=>true,audit=null){
+export function walkToward(position,target,dt,canStand,speed=RULES.runSpeed,clear=()=>true,audit=null){
  const d=dist(position,target);let accepted={...position};
  if(audit){audit.player={...position};audit.target={...target};audit.legs=[];}
  const sweptStand=(x,y)=>{
@@ -127,7 +127,7 @@ export function checkModelReady(factory=createRace){
  try{
   const {race,at}=make();race.start(0);let s=at(RULES.npcDelaySeconds-.1);require(s.npcs.every(n=>!n.active),'NPC before configured delay');
   let first=null,before=null;for(let i=RULES.npcDelaySeconds*20;i<900;i++){s=at(i*.05);const w=s.water.find(w=>w.owner!==null);if(w){first={time:i*.05,id:w.owner};before=s.npcs.find(n=>n.id===w.owner);break;}}
-  require(first&&first.time>=RULES.npcDelaySeconds+97/(10*RULES.npcSpeedRatio)+2.5-1e-8,'NPC must consume real travel and construction before capture');require(before.cooldownRemaining>=2.9,'NPC three-second cooldown missing');
+  require(first&&first.time>=RULES.npcDelaySeconds+97/(RULES.runSpeed*RULES.npcSpeedRatio)+2.5-1e-8,'NPC must consume real travel and construction before capture');require(before.cooldownRemaining>=2.9,'NPC three-second cooldown missing');
   s=at(first.time+2.8);const after=s.npcs.find(n=>n.id===first.id);require(dist(before,after)<1e-7&&after.cooldownRemaining>0,'NPC moves during cooldown');
  }catch(e){errors.push('npc: '+e.message);}
  return {ready:errors.length===0,errors,kind:'synthetic contract probes; not balance data'};
@@ -141,7 +141,7 @@ export function simulateSample(geometry,sample){
  const failures=new Map(),trace=crypto.createHash('sha256'),captures=[];
  const movementAudit={validatedFrames:0,actualAxisLegs:0,acceptedStateMismatches:0,counterfactualFullFrameLRejections:0,firstCounterfactualRejection:null};
  // Decision changes only at arrival/claim/lost target, not by looking into future NPC state.
- for(let tick=1;tick<=3600;tick++){
+ for(let tick=1;tick<=RULES.roundSeconds*20;tick++){
   const dt=.05;let category='idle';
   if(state.construction){category='construction';plan=null;targetId=null;}
   else{
@@ -155,7 +155,7 @@ export function simulateSample(geometry,sample){
    }
    while(plan?.length&&dist(player,plan[0])<1e-7)plan.shift();
    if(plan?.length){
-    const before=player,q=plan[0],audit={},maxSpeed=10*crowdSpeedFactor(incident,180-state.remaining,player),next=walkToward(player,q,dt,nav.canStand,maxSpeed,nav.clear,audit);
+    const before=player,q=plan[0],audit={},maxSpeed=RULES.runSpeed*crowdSpeedFactor(incident,RULES.roundSeconds-state.remaining,player),next=walkToward(player,q,dt,nav.canStand,maxSpeed,nav.clear,audit);
     // The callback validates EVERY actual <=15cm axis leg, not a fictitious
     // full-frame L shape (which can cross a wall even when the real path does not).
     const nextStandable=nav.canStand(next.x,next.y),movedMeters=dist(before,next),overSpeed=movedMeters>maxSpeed*dt+1e-7;
@@ -182,17 +182,17 @@ export function simulateSample(geometry,sample){
   trace.update(`${tick}:${player.x.toFixed(8)},${player.y.toFixed(8)}:${state.construction?.waterId??'-'}:${state.captured}\n`);
   for(const event of race.drainEvents())if(event.type==='capture'){const w=state.water.find(w=>w.id===event.waterId);if(!w||dist(player,w)>3+1e-8)throw Error('Capture outside source 3m');captures.push({timeSeconds:tick*.05,waterId:w.sourceId??w.id,distanceToSource:dist(player,w),hoses:Math.max(1,Math.ceil(dist(w,geometry.fire)/20))});}
  }
- if(state.status!=='finished'||state.remaining!==0)throw Error('180 second finish missing');
+ if(state.status!=='finished'||state.remaining!==0)throw Error(`${RULES.roundSeconds} second finish missing`);
  const expectedHoses=captures.reduce((n,c)=>n+c.hoses,0);if(state.totalHoses!==expectedHoses||captures.length!==state.captured)throw Error('Capture/hose accounting mismatch');
  const npc=state.water.filter(w=>w.owner!==null&&w.owner!=='player').length,unclaimed=state.water.filter(w=>w.owner===null).length;
- const row={...sample,status:'completed',total:state.total,captured:state.captured,npc,unclaimed,totalHoses:state.totalHoses,simulatedSeconds:180,movementSeconds:+movementSeconds.toFixed(9),constructionSeconds:+constructionSeconds.toFixed(9),idleSeconds:+idleSeconds.toFixed(9),movementMeters,collisionViolations,traceSha256:trace.digest('hex'),captures,unclaimedReasons:state.water.filter(w=>w.owner===null).map(w=>({waterId:w.sourceId??w.id,reason:failures.get(w.sourceId??w.id)||'180 second clock exhausted before capture'}))};
+ const row={...sample,status:'completed',total:state.total,captured:state.captured,npc,unclaimed,totalHoses:state.totalHoses,simulatedSeconds:RULES.roundSeconds,movementSeconds:+movementSeconds.toFixed(9),constructionSeconds:+constructionSeconds.toFixed(9),idleSeconds:+idleSeconds.toFixed(9),movementMeters,collisionViolations,traceSha256:trace.digest('hex'),captures,unclaimedReasons:state.water.filter(w=>w.owner===null).map(w=>({waterId:w.sourceId??w.id,reason:failures.get(w.sourceId??w.id)||`${RULES.roundSeconds} second clock exhausted before capture`}))};
  row.movementAudit=movementAudit;summarize([row]);return row;
 }
 export function runBalance(){
  const input=loadInputs();const sources=['race.mjs','core.mjs','missions.mjs','incident.mjs','game.js','tools/balance-v2.mjs'].map(p=>({path:p,sha256:sha(fs.readFileSync(path.join(ROOT,p)))}));
  const readiness=checkModelReady();
- const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:180,npcDelaySeconds:RULES.npcDelaySeconds,initialCount:10,waves:[30,60,90,120],waveCount:4,targetRadius:500,stepSeconds:.05,walkSpeed:5,runSpeed:10,selectedSpeed:10,crowdMultiplier:.6,crowdRadius:1.5,collisionRadius:.32,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
- if(readiness.ready){for(const sample of input.samples.samples){try{report.rows.push(simulateSample(prepareSample(input,sample),sample));}catch(e){report.rows.push({...sample,status:'blocked',error:e.message,captured:null,npc:null,unclaimed:null,totalHoses:null});}}report.status=report.rows.every(r=>r.status==='completed')?'completed':'incomplete';if(report.status==='completed'){report.summary=summarize(report.rows);report.summary.playerMean=report.summary.mean;report.summary.npcMean=report.summary.npc/report.rows.length;report.summary.npcMin=Math.min(...report.rows.map(r=>r.npc));report.summary.npcMax=Math.max(...report.rows.map(r=>r.npc));report.balanceTarget={subject:'greedy-player',low:11,high:14,within:report.summary.playerMean>=11&&report.summary.playerMean<=14};}}
+ const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:RULES.roundSeconds,npcDelaySeconds:RULES.npcDelaySeconds,initialCount:10,waves:[30,60,90,120],waveCount:4,targetRadius:500,stepSeconds:.05,walkSpeed:3,runSpeed:RULES.runSpeed,selectedSpeed:RULES.runSpeed,npcSpeedRatio:RULES.npcSpeedRatio,npcCount:NPC_COUNTS.normal,crowdMultiplier:.6,crowdRadius:1.5,collisionRadius:.32,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
+ if(readiness.ready){for(const sample of input.samples.samples){try{const row=simulateSample(prepareSample(input,sample),sample);report.rows.push(row);console.error(`[${sample.sample}/20] player=${row.captured} npc=${row.npc} total=${row.total}`);}catch(e){report.rows.push({...sample,status:'blocked',error:e.message,captured:null,npc:null,unclaimed:null,totalHoses:null});}}report.status=report.rows.every(r=>r.status==='completed')?'completed':'incomplete';if(report.status==='completed'){report.summary=summarize(report.rows);report.summary.playerMean=report.summary.mean;report.summary.npcMean=report.summary.npc/report.rows.length;report.summary.npcMin=Math.min(...report.rows.map(r=>r.npc));report.summary.npcMax=Math.max(...report.rows.map(r=>r.npc));report.balanceTarget={subject:'greedy-player',low:8,high:11,within:report.summary.playerMean>=8&&report.summary.playerMean<=11};}}
  for(const s of sources)if(sha(fs.readFileSync(path.join(ROOT,s.path)))!==s.sha256){report.status='invalid-model-changed-during-run';report.summary=null;}
  return report;
 }

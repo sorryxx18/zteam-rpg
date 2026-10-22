@@ -27,7 +27,7 @@ function loadedGeometry(site,base){
  const cells=[...keys].map(k=>JSON.parse(readFileSync(new URL(`data/c/${k}.json`,root))));
  return {roads:cells.flatMap(c=>c.roads||[]),buildings:cells.flatMap(c=>c.builds||[])};
 }
-test('three legacy fixture sites on real geometry: fast-forward 180 model seconds, collision-free NPCs still steal',t=>{
+test('three legacy fixture sites on real geometry: fast-forward 210 model seconds, collision-free NPCs still steal',t=>{
  const read=p=>JSON.parse(readFileSync(new URL(p,root))),sites=read('tests/fixtures/v1-sites.json'),water=read('tests/fixtures/v1-water.json'),base=read('data/base.json');
  for(let index=0;index<sites.length;index++){
   const geometry=loadedGeometry(sites[index],base);
@@ -36,11 +36,11 @@ test('three legacy fixture sites on real geometry: fast-forward 180 model second
   const check=(state,time)=>{for(const npc of state.npcs)for(const b of obstacles){if(npc.x<b.l-.32||npc.x>b.r+.32||npc.y<b.s-.32||npc.y>b.n+.32)continue;assert.ok(!pointInPoly(npc.x,npc.y,b.p),`site ${index}, ${time}s ${npc.id} inside building (${npc.x},${npc.y})`);assert.ok(!circleIntersectsPoly(npc.x,npc.y,.32,b.p),`site ${index}, ${time}s ${npc.id} touches building`);}};
   check(race.start(index),0);let state;
   // 50ms samples plus exact segment checks in the graph; not real five-minute play.
-  for(let step=1;step<=3600;step++){now=step*50;state=race.tick(.05,{x:1e6,y:1e6});check(state,step*.05);}
+  for(let step=1;step<=4200;step++){now=step*50;state=race.tick(.05,{x:1e6,y:1e6});check(state,step*.05);}
   assert.equal(state.status,'finished');assert.equal(state.remaining,0);
   assert.ok(state.water.some(w=>w.owner!==null),`site ${index}: vehicles must actually steal`);
   const stolen=race.drainEvents().filter(e=>e.type==='stolen').length;
-  t.diagnostic(`site ${index}: ${stolen} stolen; 180 model seconds, 3600 steps, ${geometry.roads.length} roads / ${obstacles.length} buildings`);
+  t.diagnostic(`site ${index}: ${stolen} stolen; 210 model seconds, 4200 steps, ${geometry.roads.length} roads / ${obstacles.length} buildings`);
  }
 });
 const road = (...p) => ({p});
@@ -85,7 +85,7 @@ const sites=[{n:'演練甲',addr:'虛構地址',x:0,y:0}];
 const water=[{k:'hydrant_above',n:'演練栓',x:100,y:0},{k:'hydrant_under',n:'演練池',x:200,y:0},{k:'hydrant_under',n:'演練河',x:600,y:0}];
 const setup=(extra={})=>{let now=0;const race=createRace({sites,water,stations:[{x:0,y:0},{x:300,y:0}],roads:[road(0,0,600,0)],clock:()=>now,random:()=>0,...extra,config:{npcCount:2,...extra.config}});return {race,setTime:n=>now=n};};
 test('default rules, random address, standable 30m spawn, 500m targets and frozen snapshots',()=>{
- assert.equal(RULES.roundSeconds,180);const {race}=setup({canStand:(x,y)=>y>20});
+ assert.equal(RULES.roundSeconds,210);const {race}=setup({canStand:(x,y)=>y>20});
  assert.equal(race.getState().status,'idle');const s=race.start();assert.equal(s.total,2);assert.ok(Math.abs(Math.hypot(s.spawn.x,s.spawn.y)-30)<1e-8);assert.ok(s.spawn.y>20);assert.ok(Object.isFrozen(s.water[0]));assert.equal(race.drainEvents().length,0);
  const other=setup({sites:[...sites,{n:'演練乙',addr:'虛構',x:100,y:0}],random:()=>.99});assert.equal(other.race.start().site.n,'演練乙');
 });
@@ -93,14 +93,14 @@ test('player capture radius is inclusive, unique, events drain, original water i
  const {race,setTime}=setup({water:[water[2],...water.slice(0,2)]});race.start();assert.equal(race.tick(0,{x:96.99,y:0}).captured,0);let s=race.tick(0,{x:97,y:0});assert.equal(s.captured,0);assert.equal(s.construction.waterId,1);setTime(2500);s=race.tick(2.5,{x:97,y:0});assert.equal(s.captured,1);assert.equal(s.water[0].id,1);assert.equal(race.drainEvents()[0].type,'capture');race.tick(0,{x:100,y:0});assert.deepEqual(race.drainEvents(),[]);
 });
 test('clock milliseconds, not dt, controls deadline and finished state never changes',()=>{
- const {race,setTime}=setup();race.start();setTime(179999);assert.ok(race.tick(0,{x:-999,y:0}).remaining>0);setTime(180000);const s=race.tick(999,{x:100,y:0});assert.equal(s.status,'finished');assert.equal(s.captured,0);assert.equal(s.remaining,0);assert.equal(race.drainEvents().filter(e=>e.type==='finish').length,1);setTime(1);assert.deepEqual(race.tick(2,{x:200,y:0}),s);assert.deepEqual(race.drainEvents(),[]);
- const fresh=setup();fresh.race.start();assert.equal(fresh.race.tick(999,{x:-999,y:0}).remaining,180);
+ const {race,setTime}=setup();race.start();setTime(209999);assert.ok(race.tick(0,{x:-999,y:0}).remaining>0);setTime(210000);const s=race.tick(999,{x:100,y:0});assert.equal(s.status,'finished');assert.equal(s.captured,0);assert.equal(s.remaining,0);assert.equal(race.drainEvents().filter(e=>e.type==='finish').length,1);setTime(1);assert.deepEqual(race.tick(2,{x:200,y:0}),s);assert.deepEqual(race.drainEvents(),[]);
+ const fresh=setup();fresh.race.start();assert.equal(fresh.race.tick(999,{x:-999,y:0}).remaining,210);
 });
-test('station spawn, delay boundaries, 10m/s and two distinct targets',()=>{
- const {race,setTime}=setup({config:{spawnMode:'nearest-station'}});assert.deepEqual(race.start().spawn,{x:0,y:0});setTime(4000);assert.ok(race.tick(4,{x:-999,y:0}).npcs.every(n=>!n.active));setTime(5000);let s=race.tick(1,{x:-999,y:0});assert.ok(s.npcs.every(n=>n.active));assert.equal(new Set(s.npcs.map(n=>n.target)).size,2);assert.equal(s.npcs[0].x,0);setTime(6000);s=race.tick(1,{x:-999,y:0});assert.ok(Math.abs(s.npcs[0].x-10*RULES.npcSpeedRatio)<1e-8);assert.ok(Math.abs(s.npcs[1].x-(300-10*RULES.npcSpeedRatio))<1e-8);
+test('station spawn, delay boundaries, 6m/s and two distinct targets',()=>{
+ const {race,setTime}=setup({config:{spawnMode:'nearest-station'}});assert.deepEqual(race.start().spawn,{x:0,y:0});setTime(4000);assert.ok(race.tick(4,{x:-999,y:0}).npcs.every(n=>!n.active));setTime(5000);let s=race.tick(1,{x:-999,y:0});assert.ok(s.npcs.every(n=>n.active));assert.equal(new Set(s.npcs.map(n=>n.target)).size,2);assert.equal(s.npcs[0].x,0);setTime(6000);s=race.tick(1,{x:-999,y:0});assert.ok(Math.abs(s.npcs[0].x-RULES.runSpeed*RULES.npcSpeedRatio)<1e-8);assert.ok(Math.abs(s.npcs[1].x-(300-RULES.runSpeed*RULES.npcSpeedRatio))<1e-8);
 });
 test('single station second vehicle leaves at 10s, stolen event and cooldown',()=>{
- const {race,setTime}=setup({stations:[{x:0,y:0}]});race.start();race.tick(0,{x:100,y:0});setTime(2500);assert.equal(race.tick(2.5,{x:100,y:0}).captured,1);setTime(5000);let s=race.tick(2.5,{x:-999,y:0});assert.equal(s.npcs[0].target,1);assert.equal(s.npcs[1].active,false);setTime(10000);s=race.tick(5,{x:-999,y:0});assert.equal(s.npcs[1].active,true);setTime((5+197/(10*RULES.npcSpeedRatio)+5)*1000);s=race.tick(25,{x:-999,y:0});assert.equal(s.water[1].owner,'npc1');assert.equal(s.npcs[0].target,null);assert.ok(s.npcs[0].cooldownRemaining>0);assert.ok(race.drainEvents().some(e=>e.type==='stolen'&&e.npcId==='npc1'));assert.equal(s.captured,1);
+ const {race,setTime}=setup({stations:[{x:0,y:0}]});race.start();race.tick(0,{x:100,y:0});setTime(2500);assert.equal(race.tick(2.5,{x:100,y:0}).captured,1);setTime(5000);let s=race.tick(2.5,{x:-999,y:0});assert.equal(s.npcs[0].target,1);assert.equal(s.npcs[1].active,false);setTime(10000);s=race.tick(5,{x:-999,y:0});assert.equal(s.npcs[1].active,true);setTime((5+197/(RULES.runSpeed*RULES.npcSpeedRatio)+5)*1000);s=race.tick(197/(RULES.runSpeed*RULES.npcSpeedRatio),{x:-999,y:0});assert.equal(s.water[1].owner,'npc1');assert.equal(s.npcs[0].target,null);assert.ok(s.npcs[0].cooldownRemaining>0);assert.ok(race.drainEvents().some(e=>e.type==='stolen'&&e.npcId==='npc1'));assert.equal(s.captured,1);
 });
 test('horn is within 50m and has an eight second per-vehicle cooldown',()=>{
  const {race,setTime}=setup();race.start();setTime(10000);race.tick(20,{x:0,y:0});assert.equal(race.drainEvents().filter(e=>e.type==='horn').length,1);setTime(11000);race.tick(0,{x:0,y:0});assert.equal(race.drainEvents().filter(e=>e.type==='horn').length,0);setTime(18000);race.tick(0,{x:0,y:0});assert.equal(race.drainEvents().filter(e=>e.type==='horn').length,1);
@@ -120,7 +120,7 @@ test('500m boundary is inclusive and route cost beats Euclidean target distance'
  assert.equal(race.start().total,3);alt.race.start();alt.setTime(10000);assert.equal(alt.race.tick(10,{x:-999,y:0}).npcs[0].target,1);
 });
 test('road movement follows bends, offroad targets cannot cause a final straight-line jump',()=>{
- const {race,setTime}=setup({stations:[{x:0,y:0}],water:[{k:'hydrant_under',n:'終點',x:100,y:100},{k:'hydrant_under',n:'建物假點',x:50,y:50}],roads:[road(0,0,0,100,100,100)]});race.start();setTime(20000);let s=race.tick(10,{x:-999,y:0});assert.equal(s.npcs[0].x,0);assert.ok(Math.abs(s.npcs[0].y-10*RULES.runSpeed*RULES.npcSpeedRatio)<1e-7);assert.equal(s.npcs[0].target,0);setTime(40000);s=race.tick(20,{x:-999,y:0});assert.equal(s.water[0].owner,'npc1');assert.equal(s.water[1].owner,null);assert.ok(s.npcs.every(n=>n.target===null));
+ const {race,setTime}=setup({stations:[{x:0,y:0}],water:[{k:'hydrant_under',n:'終點',x:100,y:100},{k:'hydrant_under',n:'建物假點',x:50,y:50}],roads:[road(0,0,0,100,100,100)]});race.start();setTime(20000);let s=race.tick(10,{x:-999,y:0});assert.equal(s.npcs[0].x,0);assert.ok(Math.abs(s.npcs[0].y-10*RULES.runSpeed*RULES.npcSpeedRatio)<1e-7);assert.equal(s.npcs[0].target,0);setTime(60000);s=race.tick(40,{x:-999,y:0});assert.equal(s.water[0].owner,'npc1');assert.equal(s.water[1].owner,null);assert.ok(s.npcs.every(n=>n.target===null));
 });
 test('road routing uses all vertices, weighted detour, deduplication and projections', () => {
  const g=buildRoadGraph([road(0,0,0,100,100,100,100,0),road(100,0,100,100,0,100,0,0)]);

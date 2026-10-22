@@ -1,20 +1,20 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad} from './core.mjs?v=6v32';
-import {createMusicPlayer} from './music.mjs?v=6v32';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32';
-import {localTestRate} from './qa-clock.mjs?v=6v32';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v32';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32a';
+import {createMusicPlayer} from './music.mjs?v=6v32a';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32a';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32a';
+import {localTestRate} from './qa-clock.mjs?v=6v32a';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel} from './missions.mjs?v=6v32a';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32a';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
-import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32';
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32a';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
-let stickPointer=null,runPointer=null,runHeld=false,movementSpeed=0,spriteCssHeight=64;
+let stickPointer=null,runPointer=null,runHeld=false,movementSpeed=0,spriteCssHeight=64,stuckAnchor=null;
 let base, available=new Set(), ready=false, x=0,y=0,direction='down',moving=false,character='rhino',station='',viewWidthMeters=175,zoomTouched=false,zoom=1, width=640,height=360, previous=0, walkingTime=0, arrival=0, nearbyKey='', messageTimer;
 // World distances and collision stay in metres; sprite display size stays in CSS pixels.
-const walkSpeed=3,runSpeed=6,metersPerUnit=1,collisionRadius=.32;
+const walkSpeed=3,runSpeed=6,metersPerUnit=1,collisionRadius=COLLISION_RADIUS;
 const music=createMusicPlayer();
 let musicError=false;
 let eligibleMissions=new Set(),captureEffects=[],interceptTimer;
@@ -67,6 +67,7 @@ function neighbors(px,py){const a=Math.floor(px/base.cs),b=Math.floor(py/base.cs
 async function loadNearby(px,py){return Promise.all(neighbors(px,py).map(loadCell));}
 function releaseCapture(element,id){if(id!==null&&element.hasPointerCapture?.(id))element.releasePointerCapture(id);}
 function clearInput(){
+  stuckAnchor=null;
   const left=stickPointer,right=runPointer;stickPointer=runPointer=null;
   keys.clear();joystick.x=joystick.y=0;joystick.active=false;runHeld=false;moving=false;running=false;motionX=motionY=0;movementSpeed=0;
   showStick();$('run').classList.remove('pressed');
@@ -98,7 +99,11 @@ async function goStation(name,fallbackIndex=null,tried=0){
   await Promise.all([...pinnedCells].map(loadCell));if(token!==arrival)return;
   if(!cache.has(cellKey(introSite.x,introSite.y))||[...pinnedCells].some(k=>!cache.has(k)))throw Error('本局道路讀取失敗');
   await loadNearby(introSite.x,introSite.y);if(token!==arrival)return;
-  if(!findPlayerSpawn(introSite,walkable)){if(tried+1<candidates.length)return goStation(name,(next+1)%candidates.length,tried+1);throw Error('本分隊暫無可用任務，請選其他分隊');}
+  // Include the 3x3 neighbourhood of every possible spawn and its 30m road fallback.
+  for(const dx of [-90,0,90])for(const dy of [-90,0,90])for(const key of neighbors(introSite.x+dx,introSite.y+dy))pinnedCells.add(key);
+  await Promise.all([...pinnedCells].map(loadCell));if(token!==arrival)return;
+  if([...pinnedCells].some(k=>!cache.has(k)))throw Error('出生點周邊建物讀取失敗');
+  if(!findPlayerSpawn(introSite,walkable,30,loadedRoads())){if(tried+1<candidates.length)return goStation(name,(next+1)%candidates.length,tried+1);throw Error('本分隊暫無可用任務，請選其他分隊');}
   const cells=await Promise.all(waterCellKeys(introSite,waterKeys,base.cs,500).map(async key=>{const r=await fetch(`./data/w/${key}.json`,{cache:'no-cache'});if(!r.ok)throw Error('消防栓格讀取失敗');return {key,rows:await r.json()};}));if(token!==arrival)return;
   const geometry=cachedGeometry();water=decodeWaterCells(cells,geometry.roads);const objectives=selectObjectives(water,introSite,300,10);
   if(!objectives.length)throw Error('火場300m內沒有可用消防栓，請重試其他題目');
@@ -242,7 +247,7 @@ function renderScene(){
   drawWorld(ctx,sceneZoom,width,height);
   drawRoadSigns(ctx,sceneZoom,width,height);drawRace(ctx,sceneZoom,width,height);
   const centre=sceneCenter(),playerX=width/2+(x-centre.x)*sceneZoom,playerY=height/2-(y-centre.y)*sceneZoom;drawDust(ctx,sceneZoom,width,height);
-  if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(playerX,playerY,zoom*collisionRadius,zoom*collisionRadius/2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteCssHeight*width/canvas.getBoundingClientRect().width/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(playerX-32*size),Math.round(playerY-f.footY*size),64*size,80*size);}}
+  if(ready){ctx.fillStyle='#34483865';ctx.beginPath();ctx.ellipse(playerX,playerY,zoom*.32,zoom*.32/2,0,0,Math.PI*2);ctx.fill();const img=images[character];if(img){const f=atlasFrame(direction,moving,walkingTime);const size=spriteCssHeight*width/canvas.getBoundingClientRect().width/80;ctx.drawImage(img,f.sx,f.sy,f.sw,f.sh,Math.round(playerX-32*size),Math.round(playerY-f.footY*size),64*size,80*size);}}
   if(ready&&performance.now()-borrowAt<1200){ctx.save();ctx.font=`bold ${16*width/canvas.getBoundingClientRect().width}px sans-serif`;ctx.textAlign='center';ctx.strokeStyle='#263e39';ctx.lineWidth=3;ctx.fillStyle='#ffe64d';const py=playerY-(spriteCssHeight+12)*width/canvas.getBoundingClientRect().width;ctx.strokeText('借過借過',playerX,py);ctx.fillText('借過借過',playerX,py);ctx.restore();}
   drawHydrantNames(ctx,sceneZoom,width,height);
   drawWorld(mini,.16,128,100,true);drawRace(mini,.16,128,100,true);playerArrow(mini,64,50);
@@ -253,15 +258,27 @@ function renderScene(){
   updateMusicUI();
   if(phase==='result')drawResultMap();
 }
+function recoverPlayer(){
+  const point=nearestStandableRoad(x,y,loadedRoads(),walkable);
+  if(!point)return false;
+  x=point.x;y=point.y;nearbyKey=cellKey(x,y);loadNearby(x,y);clearInput();camera.x=camera.y=0;dust=[];
+  notices.push('🚒 已拉回路上',1500);return true;
+}
 function update(dt){
   movementSpeed=0;crowdFactor=1;running=false;motionX=motionY=0;
   // Check the model BEFORE world movement; ticking and drawing keep running.
   if(race?.getState().construction){clearInput();return;}
   if(inputBlocked()){clearInput();return;}
+  if(!walkable(x,y)){recoverPlayer();return;}
+  const before={x,y},now=performance.now();
   const pressed=k=>keys.has(k);
   const dx=joystick.active?joystick.x:Number(pressed('ArrowRight')||pressed('d'))-Number(pressed('ArrowLeft')||pressed('a'));
   const dy=joystick.active?joystick.y:Number(pressed('ArrowUp')||pressed('w'))-Number(pressed('ArrowDown')||pressed('s'));
   if(dx||dy){crowdFactor=crowdSpeedFactor(incident,RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds),{x,y});if(crowdFactor<1&&performance.now()-borrowAt>=5000)borrowAt=performance.now();const wantsRun=joystick.active?runHeld:pressed('Shift')||pressed(' ');direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'up':'down');const next=stepMove({x,y},dx,dy,dt,(wantsRun?runSpeed:walkSpeed)*testRate*crowdFactor,walkable);const distance=Math.hypot(next.x-x,next.y-y);moving=distance>0;running=moving&&wantsRun;motionX=next.x-x;motionY=next.y-y;movementSpeed=dt>0?distance/dt:0;x=next.x;y=next.y;if(moving)walkingTime+=distance*.16/.55*(running&&paceEffects.animation?1.5:1);const k=cellKey(x,y);if(k!==nearbyKey){nearbyKey=k;loadNearby(x,y);}}else moving=false;
+  if(!(dx||dy)||!(dt>0&&dt<=.25)){stuckAnchor=null;return;}
+  stuckAnchor??={...before,at:now-dt*1000};
+  if(Math.hypot(x-stuckAnchor.x,y-stuckAnchor.y)>=.1)stuckAnchor={x,y,at:now};
+  else if(now-stuckAnchor.at>=1500)recoverPlayer();
 }
 function sprite(c,name,row,col,px,py,height,grey=false){
  const image=images[name];if(!image)return false;const [sw,sh]=ART[name],width=height*sw/sh;c.save();if(grey)c.filter='grayscale(1)';c.drawImage(image,col*sw,row*sh,sw,sh,px-width/2,py-height,width,height);c.restore();return true;

@@ -1,3 +1,5 @@
+export const COLLISION_RADIUS=.6;
+
 export function nearestRoad(x,y,roads) {
   let best=null,distance=Infinity;
   for(const road of roads) {
@@ -10,6 +12,29 @@ export function nearestRoad(x,y,roads) {
     }
   }
   return {name:best&&distance<=Math.max(15,(best.w||0)/2+8)&&best.n?best.n:'巷弄／未命名道路',distance};
+}
+
+export function nearestStandableRoad(x,y,roads,canStand,maxDistance=Infinity) {
+  const segments=[];
+  for(const road of roads)for(let i=2;i<road.p.length;i+=2){
+    const ax=road.p[i-2],ay=road.p[i-1],dx=road.p[i]-ax,dy=road.p[i+1]-ay,len=Math.hypot(dx,dy);
+    if(!len)continue;
+    const along=Math.max(0,Math.min(len,((x-ax)*dx+(y-ay)*dy)/len));
+    segments.push({ax,ay,dx:dx/len,dy:dy/len,len,along,distance:Math.hypot(ax+dx/len*along-x,ay+dy/len*along-y)});
+  }
+  segments.sort((a,b)=>a.distance-b.distance);let best=null,bestDistance=maxDistance;
+  for(const s of segments){
+    if(s.distance>bestDistance)break;
+    for(let offset=0;offset<=Math.ceil(s.len);offset++){
+      if(Math.hypot(s.distance,offset)>bestDistance+1)break;
+      for(const along of offset?[s.along-offset,s.along+offset]:[s.along]){
+        if(along<0||along>s.len)continue;
+        const p={x:s.ax+s.dx*along,y:s.ay+s.dy*along},distance=Math.hypot(p.x-x,p.y-y);
+        if(distance<=bestDistance&&canStand(p.x,p.y)){best=p;bestDistance=distance;}
+      }
+    }
+  }
+  return best;
 }
 
 export function stepMove(position,x,y,dt,speed,canWalk) {

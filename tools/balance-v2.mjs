@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {createIncident,crowdSpeedFactor} from '../incident.mjs';
 import {RULES,NPC_COUNTS,createRace,buildRoadGraph,shortestRoute} from '../race.mjs';
-import {circleIntersectsPoly,stepMove} from '../core.mjs';
+import {circleIntersectsPoly,stepMove,COLLISION_RADIUS} from '../core.mjs';
 import {resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,missionCandidates} from '../missions.mjs';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
@@ -32,6 +32,7 @@ export function prepareSample(input,sample){
  const nearest=[...base.stations].sort((a,b)=>dist(a,fire)-dist(b,fire)).slice(0,NPC_COUNTS.normal);
  for(const s of nearest){const steps=Math.max(1,Math.ceil(dist(s,fire)/(base.cs/2)));for(let i=0;i<=steps;i++){const x=fire.x+(s.x-fire.x)*i/steps,y=fire.y+(s.y-fire.y)*i/steps;rect(x-base.cs,y-base.cs,x+base.cs,y+base.cs);}}
  neighbors(fire.x,fire.y);
+ for(const dx of [-90,0,90])for(const dy of [-90,0,90])neighbors(fire.x+dx,fire.y+dy);
  const geometry={roads:[...selected].flatMap(k=>cells.get(k).roads||[]),buildings:[...selected].flatMap(k=>cells.get(k).builds||[])};
  const water=selectObjectives(decodeWaterCells(waterCellKeys(fire,keys,base.cs,500).map(key=>({key,rows:waters.get(key)})),geometry.roads),fire,500,Infinity).map(w=>({...w,sourceId:w.id}));
  return {fire,water,stations:base.stations,...geometry,cellKeys:[...selected]};
@@ -39,18 +40,18 @@ export function prepareSample(input,sample){
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
 // Broad phase buckets keep exact swept-circle tests affordable. No point snapping.
-export function createNavigator({roads=[],buildings=[],cellKeys=null,cellSize=500}){
+export function createNavigator({roads=[],buildings=[],cellKeys=null,cellSize=500,collisionRadius=COLLISION_RADIUS}){
  const grid=new Map();
  const box=p=>{let l=Infinity,b=Infinity,r=-Infinity,t=-Infinity;for(let i=0;i<p.length;i+=2){l=Math.min(l,p[i]);b=Math.min(b,p[i+1]);r=Math.max(r,p[i]);t=Math.max(t,p[i+1]);}return [l,b,r,t];};
  const insert=(building)=>{const [l,b,r,t]=box(building.p);for(let x=Math.floor(l/25);x<=Math.floor(r/25);x++)for(let y=Math.floor(b/25);y<=Math.floor(t/25);y++){const k=`${x}_${y}`;if(!grid.has(k))grid.set(k,[]);grid.get(k).push(building);}};
  const seen=new Set();for(const b of buildings){const k=JSON.stringify(b.p);if(!seen.has(k)){seen.add(k);insert(b);}}
  const nearby=(l,b,r,t)=>{const out=new Set();for(let x=Math.floor(l/25);x<=Math.floor(r/25);x++)for(let y=Math.floor(b/25);y<=Math.floor(t/25);y++)for(const item of grid.get(`${x}_${y}`)||[])out.add(item);return [...out];};
  const loaded=cellKeys?new Set(cellKeys):null;
- const canStand=(x,y)=> (!loaded||loaded.has(`${Math.floor(x/cellSize)}_${Math.floor(y/cellSize)}`))&&!nearby(x-.32,y-.32,x+.32,y+.32).some(b=>circleIntersectsPoly(x,y,.32,b.p));
+ const canStand=(x,y)=> (!loaded||loaded.has(`${Math.floor(x/cellSize)}_${Math.floor(y/cellSize)}`))&&!nearby(x-collisionRadius,y-collisionRadius,x+collisionRadius,y+collisionRadius).some(b=>circleIntersectsPoly(x,y,collisionRadius,b.p));
  const clear=(a,b)=>{
   if(!canStand(a.x,a.y)||!canStand(b.x,b.y))return false;
   if(dist(a,b)<1e-9)return true;
-  const obstacles=nearby(Math.min(a.x,b.x)-.32,Math.min(a.y,b.y)-.32,Math.max(a.x,b.x)+.32,Math.max(a.y,b.y)+.32);
+  const obstacles=nearby(Math.min(a.x,b.x)-collisionRadius,Math.min(a.y,b.y)-collisionRadius,Math.max(a.x,b.x)+collisionRadius,Math.max(a.y,b.y)+collisionRadius);
   // Exact segment/segment minimum distance, including thin-wall crossings. Unlike
   // graph node rounding this also works for final movement steps below 25cm.
   const pointSegment=(p,u,v)=>{const dx=v.x-u.x,dy=v.y-u.y,t=Math.max(0,Math.min(1,((p.x-u.x)*dx+(p.y-u.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-u.x-t*dx,p.y-u.y-t*dy);};
@@ -58,13 +59,13 @@ export function createNavigator({roads=[],buildings=[],cellKeys=null,cellSize=50
   for(const {p} of obstacles)for(let i=0,j=p.length-2;i<p.length;j=i,i+=2){
    const c={x:p[j],y:p[j+1]},d={x:p[i],y:p[i+1]};
    const crosses=cross(a,b,c)*cross(a,b,d)<=0&&cross(c,d,a)*cross(c,d,b)<=0&&Math.max(a.x,b.x)>=Math.min(c.x,d.x)&&Math.min(a.x,b.x)<=Math.max(c.x,d.x)&&Math.max(a.y,b.y)>=Math.min(c.y,d.y)&&Math.min(a.y,b.y)<=Math.max(c.y,d.y);
-   if(crosses||Math.min(pointSegment(a,c,d),pointSegment(b,c,d),pointSegment(c,a,b),pointSegment(d,a,b))<=.32+1e-10)return false;
+   if(crosses||Math.min(pointSegment(a,c,d),pointSegment(b,c,d),pointSegment(c,a,b),pointSegment(d,a,b))<=collisionRadius+1e-10)return false;
   }
   // A route must stay in loaded geometry, including along long connectors.
   for(let d=0,n=Math.ceil(dist(a,b));d<=n;d++){const f=n?d/n:0;if(!canStand(a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f))return false;}
   return true;
  };
- const graph=buildRoadGraph(roads,{buildings});
+ const graph=buildRoadGraph(roads,{buildings,radius:collisionRadius});
  const route=(from,target)=>{
   const candidates=[{x:target.x,y:target.y},...Array.from({length:24},(_,k)=>({x:target.x+2.8*Math.cos(k*Math.PI/12),y:target.y+2.8*Math.sin(k*Math.PI/12)}))].filter(p=>canStand(p.x,p.y));
   let best=null;
@@ -74,10 +75,10 @@ export function createNavigator({roads=[],buildings=[],cellKeys=null,cellSize=50
   if(road)for(const p of candidates)consider([...road.points,p]);
   // Only if the original conservative search fails, try nearby real polygon
   // corners. These are candidate waypoints, never snaps: every connector is
-  // checked by the same loaded-cell and .32m swept-circle predicate.
+  // checked by the same loaded-cell and collision-radius swept-circle predicate.
   if(!best){
    const corners=[];
-   for(const {p} of nearby(from.x-60,from.y-60,from.x+60,from.y+60))for(let i=0;i<p.length;i+=2)for(const dx of [-.5,.5])for(const dy of [-.5,.5]){
+   for(const {p} of nearby(from.x-60,from.y-60,from.x+60,from.y+60))for(let i=0;i<p.length;i+=2)for(const dx of [-(collisionRadius+.18),collisionRadius+.18])for(const dy of [-(collisionRadius+.18),collisionRadius+.18]){
     const q={x:p[i]+dx,y:p[i+1]+dy};if(dist(from,q)<=60&&clear(from,q))corners.push(q);
    }
    corners.sort((a,b)=>dist(from,a)-dist(from,b));
@@ -191,7 +192,7 @@ export function simulateSample(geometry,sample){
 export function runBalance(){
  const input=loadInputs();const sources=['race.mjs','core.mjs','missions.mjs','incident.mjs','game.js','tools/balance-v2.mjs'].map(p=>({path:p,sha256:sha(fs.readFileSync(path.join(ROOT,p)))}));
  const readiness=checkModelReady();
- const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:RULES.roundSeconds,npcDelaySeconds:RULES.npcDelaySeconds,initialCount:10,waves:[30,60,90,120],waveCount:4,targetRadius:500,stepSeconds:.05,walkSpeed:3,runSpeed:RULES.runSpeed,selectedSpeed:RULES.runSpeed,npcSpeedRatio:RULES.npcSpeedRatio,npcCount:NPC_COUNTS.normal,crowdMultiplier:.6,crowdRadius:1.5,collisionRadius:.32,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-0.5m axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
+ const report={schema:'balance-v3-real-geometry-1',status:readiness.ready?'running':'blocked-model-not-ready',difficulty:'normal',seed:input.samples.seed,readiness,modelBuild:sources,inputSha256:sha(JSON.stringify(input.hashes)),sourceSha256:input.hashes,strategy:{clockSeconds:RULES.roundSeconds,npcDelaySeconds:RULES.npcDelaySeconds,initialCount:10,waves:[30,60,90,120],waveCount:4,targetRadius:500,stepSeconds:.05,walkSpeed:3,runSpeed:RULES.runSpeed,selectedSpeed:RULES.runSpeed,npcSpeedRatio:RULES.npcSpeedRatio,npcCount:NPC_COUNTS.normal,crowdMultiplier:.6,crowdRadius:1.5,collisionRadius:COLLISION_RADIUS,npcSource:'base.stations; normal nearest corridors as game; createRace normal defaults unchanged',navigation:'nearest feasible full route among unclaimed sources; direct or shortestRoute nearest-road projection; source center plus 24 points at 2.8m; every connector swept-circle checked; actual movement core.stepMove; locked during model construction; no reaction delay tuning',limitations:['Finite conservative search, not a global reachability proof: when direct/nearest-road fails, try visible building-vertex offsets (+/-(collision radius + 0.18m) axes) within 60m and up to eight nearest visible road projections within 100m per corner; all legs still swept-checked. No multi-corner search.','Fresh-round geometry mirrors game initial neighbors and pinned fire/normal-nearest-station corridor policy; excludes unrelated previous-round cache remnants.','Always-run greedy player is a fixed policy, not an average human. No combo score. No NPC parameter overrides.','Unstartable rounds remain explicit failures; no replacement samples and no partial mean.']},rows:[],summary:null};
  if(readiness.ready){for(const sample of input.samples.samples){try{const row=simulateSample(prepareSample(input,sample),sample);report.rows.push(row);console.error(`[${sample.sample}/20] player=${row.captured} npc=${row.npc} total=${row.total}`);}catch(e){report.rows.push({...sample,status:'blocked',error:e.message,captured:null,npc:null,unclaimed:null,totalHoses:null});}}report.status=report.rows.every(r=>r.status==='completed')?'completed':'incomplete';if(report.status==='completed'){report.summary=summarize(report.rows);report.summary.playerMean=report.summary.mean;report.summary.npcMean=report.summary.npc/report.rows.length;report.summary.npcMin=Math.min(...report.rows.map(r=>r.npc));report.summary.npcMax=Math.max(...report.rows.map(r=>r.npc));report.balanceTarget={subject:'greedy-player',low:8,high:11,within:report.summary.playerMean>=8&&report.summary.playerMean<=11};}}
  for(const s of sources)if(sha(fs.readFileSync(path.join(ROOT,s.path)))!==s.sha256){report.status='invalid-model-changed-during-run';report.summary=null;}
  return report;

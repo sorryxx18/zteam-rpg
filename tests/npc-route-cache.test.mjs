@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const source=await readFile(new URL('../race.mjs',import.meta.url),'utf8');
 async function instrument(text=source){
- text=text.replace("'./core.mjs'",JSON.stringify(new URL('../core.mjs',import.meta.url).href))
+ text=text.replace(/'\.\/core\.mjs(?:\?[^']*)?'/,JSON.stringify(new URL('../core.mjs',import.meta.url).href))
   .replace('export function shortestRoute(graph,from,to){','export let routeQueries=0; export function shortestRoute(graph,from,to){routeQueries++;')
   .replace('function project(graph,p){','export let projections=0; function project(graph,p){projections++;');
  return import(`data:text/javascript;base64,${Buffer.from(text).toString('base64')}#${Math.random()}`);
@@ -21,7 +21,7 @@ test('same NPC position caches two disconnected geometry queries across 100 fram
 test('dynamic canStand is rechecked; moving NPC replans and cached candidates match uncached snapshots/events',async()=>{
  const cached=await instrument(),uncached=await instrument(source.replace('cache.queries.set(w.id,cached);','/* reference: do not retain queries */'));
  let open=false;
- const opts={water:[{n:'a',k:'hydrant_above',x:20,y:6.5},{n:'b',k:'hydrant_above',x:60,y:6.5}],roads:[{w:8,p:[0,0,100,0]}],canStand:(x,y)=>y===0||open};
+ const opts={water:[{n:'a',k:'hydrant_above',x:20,y:6.3},{n:'b',k:'hydrant_above',x:60,y:6.3}],roads:[{w:8,p:[0,0,100,0]}],canStand:(x,y)=>y===0||open};
  const a=setup(cached,opts),b=setup(uncached,opts);assert.deepEqual(a.race.start(0),b.race.start(0));
  const check=t=>{const s=a.at(t);assert.deepEqual(s,b.at(t));assert.deepEqual(a.race.drainEvents(),b.race.drainEvents());return s;};
  check(0);assert.equal(cached.routeQueries,2);const projects=cached.projections;

@@ -13,7 +13,7 @@ test('fixed sample 1 completes without illegal swept movement',()=>{
  assert.equal(row.status,'completed');assert.equal(row.collisionViolations,0);
 });
 test('sample 1 tick 1652 validates all real axis legs, not counterfactual frame L',()=>{
- const input=balance.loadInputs(),nav=balance.createNavigator(balance.prepareSample(input,input.samples.samples[0]));
+ const input=balance.loadInputs(),nav=balance.createNavigator({...balance.prepareSample(input,input.samples.samples[0]),collisionRadius:.32});
  const before={x:-2115.4945107369017,y:-37.44360921822131},target={x:-2088.0798989873224,y:-45.37989898732233},audit={};
  const next=balance.walkToward(before,target,.05,nav.canStand,10,nav.clear,audit);
  assert.equal(nav.clear(before,{x:next.x,y:before.y}),false);
@@ -21,7 +21,7 @@ test('sample 1 tick 1652 validates all real axis legs, not counterfactual frame 
  assert.equal(audit.acceptedMatchesNext,true);assert.ok(audit.legs.every(l=>l.accepted&&l.sweptClear));
 });
 test('axis-leg audit distinguishes valid staircase from fictitious full-frame L collision',()=>{
- const nav=balance.createNavigator({buildings:[{p:[.44,-.16,.46,-.16,.46,-.14,.44,-.14]}]});
+ const nav=balance.createNavigator({collisionRadius:.32,buildings:[{p:[.44,-.16,.46,-.16,.46,-.14,.44,-.14]}]});
  const before={x:0,y:0},audit={};
  const next=balance.walkToward(before,{x:1,y:1},.05,nav.canStand,10,nav.clear,audit);
  assert.ok(nav.canStand(next.x,next.y));assert.ok(Math.hypot(next.x,next.y)<=.5+1e-7);

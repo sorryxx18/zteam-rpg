@@ -1,4 +1,4 @@
-import {circleIntersectsPoly} from './core.mjs';
+import {circleIntersectsPoly,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32a';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
 export const RULES=Object.freeze({roundSeconds:210,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:6,npcSpeedRatio:.9});
@@ -19,9 +19,9 @@ export function rememberRecord(storage,difficulty,outcome){
  try{const saved=JSON.parse(storage?.getItem(key));for(const k of Object.keys(record))if(Number.isSafeInteger(saved?.[k])&&saved[k]>=0)record[k]=saved[k];}catch{}
  record[outcome]++;try{storage?.setItem(key,JSON.stringify(record));}catch{}return record;
 }
-export function findPlayerSpawn(site,canStand,distance=30){
+export function findPlayerSpawn(site,canStand,distance=30,roads=[]){
  for(const radius of [distance,distance*1.5,distance*2])for(let i=0;i<72;i++){const angle=i*Math.PI/36,p={x:site.x+Math.cos(angle)*radius,y:site.y+Math.sin(angle)*radius};if(canStand(p.x,p.y))return p;}
- return null;
+ return nearestStandableRoad(site.x+distance,site.y,roads,canStand,30);
 }
 export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=()=>performance.now(),random=Math.random,canStand=()=>true,config={}}){
  const rules={...RULES,...config};
@@ -57,14 +57,14 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
  const construction=w=>{const hoses=Math.max(1,Math.ceil(distance(w,state.site)/20));return {waterId:w.id,hoses,duration:Math.min(6,hoses*.5),elapsed:0,contested:false};};
  const claim=(w,owner,n=null,time=elapsed)=>{if(w.owner!==null)return;w.owner=owner;if(owner==='player'){state.combo=state.combo&&time<=state.comboExpiresAt+1e-9?state.combo+1:1;state.comboExpiresAt=time+15;const comboBonus=state.combo>=2?1:0,interceptBonus=state.npcs.some((car,i)=>time>=meta[i].delay-1e-9&&distance(car,w)<=30+1e-9)?1:0;state.captured++;state.comboBonus+=comboBonus;state.interceptBonus+=interceptBonus;state.score+=1+comboBonus+interceptBonus;state.totalHoses+=state.construction.hoses;event('capture',w,null,{timeSeconds:time,combo:state.combo,comboBonus,interceptBonus});}else{n.cooldownRemaining=3;event('stolen',w,n);horn(n,time);}if(state.construction?.waterId===w.id)state.construction=null;for(const car of state.npcs)if(car.target===w.id){car.target=null;car.route=[];car.construction=null;}};
  const legalCurbSegment=(a,b,edge)=>{
-  const clearance=edge.w/2-.32;
-  if(clearance<0||distance(a,b)>clearance||!canStand(a.x,a.y)||!canStand(b.x,b.y))return false;
+  const clearance=edge.w/2-COLLISION_RADIUS;
+  if(clearance<0||distance(a,b)>clearance+1e-9||!canStand(a.x,a.y)||!canStand(b.x,b.y))return false;
   // The eroded ORIGINAL road capsule is convex. Both endpoints inside it
-  // prove the entire swept .32m vehicle stays on that same road, even at ends
+  // prove the entire swept collision-radius vehicle stays on that same road, even at ends
   // and when graph-node quantization chose another road's nearby vertex.
   const {roadA:u,roadB:v}=edge,dx=v.x-u.x,dy=v.y-u.y;
-  for(const p of [a,b]){const t=Math.max(0,Math.min(1,((p.x-u.x)*dx+(p.y-u.y)*dy)/(dx*dx+dy*dy)));if(distance(p,{x:u.x+t*dx,y:u.y+t*dy})>clearance)return false;}
-  return !buildings.some(o=>blockedSegment(a,b,o,.32));
+  for(const p of [a,b]){const t=Math.max(0,Math.min(1,((p.x-u.x)*dx+(p.y-u.y)*dy)/(dx*dx+dy*dy)));if(distance(p,{x:u.x+t*dx,y:u.y+t*dy})>clearance+1e-9)return false;}
+  return !buildings.some(o=>blockedSegment(a,b,o,COLLISION_RADIUS));
  };
  const plan=n=>{if(n.target!==null&&state.water.find(w=>w.id===n.target)?.owner===null)return;
   n.target=null;n.route=[];let best=Infinity,bestPriority=Infinity;
@@ -91,7 +91,7 @@ export function createRace({sites,water,stations=[],roads=[],buildings=[],clock=
   nextWave=1;const targets=waves[0].map(w=>({...w,openedAt:0}));if(!targets.length)throw new Error('場所附近沒有水源');
   let spawn=null;
   if(rules.spawnMode==='nearest-station'){if(!near.length)throw new Error('沒有可用分隊');const s=near[0];if(canStand(s.x,s.y))spawn={x:s.x,y:s.y};}
-  else spawn=findPlayerSpawn(site,canStand,rules.spawnDistance);
+  else spawn=findPlayerSpawn(site,canStand,rules.spawnDistance,roads);
   if(!spawn)throw new Error('找不到可站立的出生位置');
   started=clock();elapsed=0;events=[];meta=[];cancelled=new Set();geometryCache=new WeakMap();lastPlayer=null;
   state={status:'playing',difficulty:rules.difficulty,site:{n:site.n,addr:site.addr,x:site.x,y:site.y},spawn,remaining:rules.roundSeconds,captured:0,score:0,combo:0,comboBonus:0,interceptBonus:0,comboExpiresAt:0,totalHoses:0,construction:null,total:targets.length,plannedTotal:waves.reduce((n,w)=>n+w.length,0),wave:0,water:targets,npcs:[]};
@@ -163,7 +163,7 @@ function perimeterEntries(graph,site,count,canStand){
    if(t<0||t>1)continue;const p={x:e.a.x+t*dx,y:e.a.y+t*dy},d=distance(p,site);
    if(d<250-1e-7||d>300+1e-7||!canStand(p.x,p.y))continue;
    const u=e.roadA,v=e.roadB,vx=v.x-u.x,vy=v.y-u.y,f=Math.max(0,Math.min(1,((p.x-u.x)*vx+(p.y-u.y)*vy)/(vx*vx+vy*vy)));
-   if(distance(p,{x:u.x+f*vx,y:u.y+f*vy})>e.w/2-.32+1e-8)continue;
+   if(distance(p,{x:u.x+f*vx,y:u.y+f*vy})>e.w/2-COLLISION_RADIUS+1e-8)continue;
    const key=`${p.x.toFixed(6)},${p.y.toFixed(6)}`;if(seen.has(key))continue;seen.add(key);candidates.push({...p,d,angle:Math.atan2(p.y-site.y,p.x-site.x)});
   }
  }
@@ -191,7 +191,7 @@ function blockedSegment(a,b,{p},radius){
  }
  return false;
 }
-export function buildRoadGraph(roads=[],{buildings=[],radius=.32}={}) {
+export function buildRoadGraph(roads=[],{buildings=[],radius=COLLISION_RADIUS}={}) {
  const nodes=new Map(), edges=[], seen=new Set();
  // Bounds are derived once; caller geometry and optional metadata remain untouched.
  const obstacles=buildings.map(({p})=>{let l=Infinity,r=-Infinity,s=Infinity,n=-Infinity;for(let i=0;i<p.length;i+=2){l=Math.min(l,p[i]);r=Math.max(r,p[i]);s=Math.min(s,p[i+1]);n=Math.max(n,p[i+1]);}return {p,l,r,s,n};});

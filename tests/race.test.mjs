@@ -56,9 +56,9 @@ test('swept radius rejects thin walls, tangency and near misses without rejectin
  const box=(l,b,r,t)=>({p:[l,b,r,b,r,t,l,t],bbox:['ignored caller metadata']});
  const cases=[
   {building:box(50.001,-1,50.002,1),edges:0}, // narrower than any movement sample
-  {building:box(40,.31,60,1),edges:0}, // centreline clear, vehicle clips
-  {building:box(40,.32,60,1),edges:0}, // tangency
-  {building:box(40,.321,60,1),edges:1},
+  {building:box(40,.59,60,1),edges:0}, // centreline clear, vehicle clips
+  {building:box(40,.6,60,1),edges:0}, // tangency
+  {building:box(40,.601,60,1),edges:1},
   {building:box(-1,-1,1,1),edges:0}, // endpoint inside
  ];
  for(const {building,edges} of cases)assert.equal(buildRoadGraph([road(0,0,100,0)],{buildings:[building]}).edges.length,edges);

@@ -21,7 +21,7 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const base=JSON.parse(await readFile(new URL('data/base.json',root),'utf8'));
   elements.get('game').getBoundingClientRect=()=>({width:viewport[0],height:viewport[1]});
   const window={location,addEventListener:(k,f)=>events[k]=f,matchMedia:()=>({matches:viewport[0]<=900||viewport[1]<=450})};
-  const box={...core,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},localTestRate,URLSearchParams,window,document,console,setTimeout:()=>1,clearTimeout(){},ResizeObserver:class{observe(){}},Image:class{set src(v){this.url=v;queueMicrotask(()=>this.onload());}},requestAnimationFrame:f=>frames.push(f),fetch:async url=>{calls.push(url);if(url.endsWith('base.json'))return {ok:true,json:async()=>base};if(url.endsWith('overview.json'))return {ok:true,json:async()=>({roads:[{p:[-5000,0,11000,0],w:8,n:'概覽路'}],stations:base.stations})};return {ok:true,json:async()=>({builds:wall?[{p:(()=>{const s=base.stations.find(s=>s.name.includes('莊敬'));return [s.x+.5,s.y-5,s.x+.51,s.y-5,s.x+.51,s.y+5,s.x+.5,s.y+5];})()}]:[],roads:[{p:[-5000,-677,11000,-677],w:8,n:'測試路'}]})};}};
+  const box={...core,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},localTestRate,URLSearchParams,window,document,console,setTimeout:()=>1,clearTimeout(){},ResizeObserver:class{observe(){}},Image:class{set src(v){this.url=v;queueMicrotask(()=>this.onload());}},requestAnimationFrame:f=>frames.push(f),fetch:async url=>{calls.push(url);if(url.endsWith('base.json'))return {ok:true,json:async()=>base};if(url.endsWith('overview.json'))return {ok:true,json:async()=>({roads:[{p:[-5000,0,11000,0],w:8,n:'概覽路'}],stations:base.stations})};return {ok:true,json:async()=>({builds:wall?[{p:(()=>{const s=base.stations.find(s=>s.name.includes('莊敬'));return [s.x+.9,s.y-5,s.x+.91,s.y-5,s.x+.91,s.y+5,s.x+.9,s.y+5];})()}]:[],roads:[{p:[-5000,-677,11000,-677],w:8,n:'測試路'}]})};}};
   let now=0,offset=0;
   box.setTimeout=fn=>timers.push(fn);
   box.requestAnimationFrame=f=>frames.push(t=>{now=t+offset;f(now);});
@@ -59,6 +59,35 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const click=async id=>{await elements.get(id)?.listeners.click?.({target:elements.get(id)});await settle();if(id==='start-game'&&autoIntro){await skipPrelude();if(window.__game.getState().phase==='intro'){advance(now-offset+2000);offset=now;}}};
   return {elements,calls,events,window,frames,click,settle,html,source,box,drawCalls,advance,raceInputs,timers,skipPrelude,storage};
 }
+test('v3.2a 兩棟相距0.8m的窄縫不能擠入，人物尺寸不變',async()=>{
+ const h=await harness({movementOnly:true});await h.click('start-game');const start=h.window.__game.getState();
+ vm.runInContext(`for(const d of cache.values())d.builds=[[-5,1,-.4,1,-.4,8,-5,8],[.4,1,5,1,5,8,.4,8]].map(p=>{p=p.map((v,i)=>v+(i%2?y:x));return {p,bounds:bounds(p)};});`,h.box);
+ h.events.keydown({key:'w',target:{closest:()=>null},preventDefault(){}});for(let t=200;t<=1200;t+=200)h.advance(t);
+ const end=h.window.__game.getState();assert.ok(end.y-start.y<1,'不能走進0.8m縫');assert.equal(end.collisionRadius,.6);assert.equal(end.spriteCssHeight,start.spriteCssHeight);
+});
+test('v3.2a 建物內下一幀拉回；持續推牆1.5秒才拉回，施工不觸發',async()=>{
+ const h=await harness({movementOnly:true});await h.click('start-game');
+ vm.runInContext(`for(const d of cache.values())d.builds=[{p:[x-1,y-1,x+1,y-1,x+1,y+1,x-1,y+1],bounds:[x-1,y-1,x+1,y+1]}];`,h.box);
+ h.advance(100);assert.equal(vm.runInContext('walkable(x,y)',h.box),true);assert.equal(h.elements.get('stolen-feedback').textContent,'🚒 已拉回路上');
+ vm.runInContext(`notices.clear();for(const d of cache.values())d.builds=[{p:[x+.61,y-5,x+5,y-5,x+5,y+5,x+.61,y+5],bounds:[x+.61,y-5,x+5,y+5]}];`,h.box);
+ h.events.keydown({key:'d',target:{closest:()=>null},preventDefault(){}});const start=h.window.__game.getState();for(let t=200;t<=1500;t+=100)h.advance(t);assert.equal(h.window.__game.getState().x,start.x);assert.notEqual(h.elements.get('stolen-feedback').textContent,'🚒 已拉回路上');h.advance(1600);assert.equal(h.elements.get('stolen-feedback').textContent,'🚒 已拉回路上');
+ vm.runInContext(`notices.clear();race={...race,getState:()=>({construction:{duration:6,elapsed:0},remaining:200,status:'playing',water:[],npcs:[],captured:0,score:0,site:introSite}),tick(){},drainEvents:()=>[]};for(const d of cache.values())d.builds=[{p:[x-1,y-1,x+1,y-1,x+1,y+1,x-1,y+1],bounds:[x-1,y-1,x+1,y+1]}];`,h.box);
+ const locked=h.window.__game.getState();h.advance(1700);assert.equal(h.window.__game.getState().x,locked.x);assert.equal(h.window.__game.getState().y,locked.y);assert.notEqual(h.elements.get('stolen-feedback').textContent,'🚒 已拉回路上');
+});
+test('v3.2a 出生點周邊建物格延遲載入，完成前不能出勤且不生在建物內',async()=>{
+ const h=await harness({movementOnly:true});
+ assert.deepEqual(h.box.findPlayerSpawn({x:0,y:0},(x,y)=>x===20&&y===1,30,[{p:[20,0,20,10]}]),{x:20,y:1});
+ assert.equal(h.box.findPlayerSpawn({x:0,y:0},()=>false,30,[{p:[20,0,20,10]}]),null);
+ assert.equal(h.box.findPlayerSpawn({x:0,y:0},(x,y)=>x===100,30,[{p:[100,0,100,10]}]),null);
+ let release,requested=false;const gate=new Promise(r=>release=r),fetch=h.box.fetch;
+ vm.runInContext(`cache.clear();roadsVersion++;available=new Set(Array.from({length:4},(_,i)=>i-1).flatMap(a=>[-1,0,1].map(b=>a+'_'+b)));base.cells=[...available];base.stations=base.stations.map(s=>({...s,x:499.9,y:100}));sites=[{n:'延遲場所',addr:'測試地址',st:base.stations.find(s=>s.name.includes('莊敬')).name,x:499.9,y:100}];eligibleMissions=new Set([0]);waterKeys=['1_0'];`,h.box);
+ h.box.fetch=async url=>{
+  if(url.includes('/c/')){const delayed=url.endsWith('/2_0.json');if(delayed){requested=true;await gate;}return {ok:true,json:async()=>({builds:delayed?[{p:[529.4,99,1010,99,1010,101,529.4,101]}]:[],roads:[{p:[-1000,100,2000,100],w:8,n:'測試路'}]})};}
+  if(url.includes('/w/')&&!url.endsWith('index.json'))return {ok:true,json:async()=>[[550,100,'hydrant_above']]};return fetch(url);
+ };
+ const start=h.click('start-game');await h.settle();try{assert.ok(requested,'需讀出生點3×3的外鄰格');assert.equal(h.window.__game.getState().phase,'loading');assert.equal(h.raceInputs.length,0);}finally{release();await start;}
+ assert.equal(h.window.__game.getState().phase,'playing',h.elements.get('start-status').textContent);assert.equal(vm.runInContext('neighbors(x,y).every(k=>cache.has(k))&&walkable(x,y)',h.box),true);
+});
 test('v3.2 真實公尺速度走3跑6，NPC速度跟隨6乘0.9',async()=>{
  const h=await harness({movementOnly:true});await h.click('start-game');const s=h.window.__game.getState();assert.equal(s.walkSpeed,3);assert.equal(s.runSpeed,6);assert.equal(h.box.RULES.runSpeed,6);assert.equal(h.box.RULES.npcSpeedRatio,.9);
  h.events.keydown({key:'d',target:{closest:()=>null},preventDefault(){}});h.advance(200);assert.ok(Math.abs(h.window.__game.getState().x-s.x-.6)<1e-8);
@@ -225,7 +254,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
- assert.ok(imports.every(path=>path.endsWith('?v=6v32')),imports.join(', '));
+ assert.ok(imports.every(path=>path.endsWith('?v=6v32a')),imports.join(', '));
+ const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32a/,'模型依賴也要避開舊快取');
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;
@@ -385,13 +415,13 @@ test('本機快轉只乘玩家speed，保留原始dt、250ms卡頓丟棄與15cm�
     await h.click('start-game');await h.skipPrelude();h.advance(2000);h.advance(3000);const start=get().x;
     h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});
     h.advance(3100);assert.deepEqual(moves.at(-1),{dt:.1,speed:15});
-    if(wall)assert.ok(get().x>start&&get().x<=start+.18,'圓形占地停在細牆前');
+    if(wall)assert.ok(get().x>start&&get().x<=start+.3,'圓形占地停在細牆前');
     else assert.ok(Math.abs(get().x-start-1.5)<1e-8,'10FPS原始dt不因快轉超過卡頓門檻');
     h.events.keydown({target:{closest:()=>null},key:'Shift',preventDefault(){}});
     h.advance(3200);assert.deepEqual(moves.at(-1),{dt:.1,speed:30});
-    if(wall)assert.ok(get().x<=start+.18);else assert.ok(Math.abs(get().x-start-4.5)<1e-8);
+    if(wall)assert.ok(get().x<=start+.3);else assert.ok(Math.abs(get().x-start-4.5)<1e-8);
     const x=get().x;h.advance(4000);assert.equal(get().x,x,'原始800ms卡頓不得追趕');assert.equal(get().race.remaining,200);
-    assert.equal(get().walkSpeed,3);assert.equal(get().runSpeed,6);assert.equal(get().collisionRadius,.32);
+    assert.equal(get().walkSpeed,3);assert.equal(get().runSpeed,6);assert.equal(get().collisionRadius,.6);
   }
 });
 test('只有本機啟用時持續明示本機測試×5，提示逾時仍保留，公開與footer不受污染',async()=>{
@@ -457,11 +487,11 @@ test('真音樂模型結算自然結束或尚未播放時只切靜音，不誤�
   const count=sources.length;await h.click('music-toggle');assert.equal(player.getState().muted,true);assert.equal(sources.length,count);
   await h.click('music-toggle');assert.equal(player.getState().muted,false);assert.equal(sources.length,count);
 });
-test('真實1m/unit與.32m碰撞不變，走3跑6且實際位移正確',async()=>{
+test('真實1m/unit與.6m碰撞，走3跑6且實際位移正確',async()=>{
   const h=await harness({movementOnly:true});await h.click('start-game');const get=()=>h.window.__game.getState();
   assert.equal(get().walkSpeed,3);assert.equal(get().runSpeed,6);
   assert.equal(get().viewWidthMeters,80);
-  assert.equal(get().metersPerUnit,1);assert.equal(get().collisionRadius,.32);
+  assert.equal(get().metersPerUnit,1);assert.equal(get().collisionRadius,.6);
   const start=get().x;h.frames.shift()(1000);
   h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});
   h.frames.shift()(1050);assert.ok(Math.abs(get().x-start-.15)<1e-8);
@@ -540,13 +570,13 @@ test('cancel/lostcapture/blur/visibility/resize/modal 清除兩指且選單內�
   }
 });
 
-test('遊戲使用共享.32m圓形碰撞占地及同尺度陰影，細牆前可走但不穿過',async()=>{
+test('遊戲使用共享.6m圓形碰撞占地及原尺寸陰影，細牆前可走但不穿過',async()=>{
   const h=await harness({wall:true});await h.click('start-game');const get=()=>h.window.__game.getState();
   h.frames.shift()(1000);const start=get().x;
   h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});
   h.frames.shift()(1100);assert.ok(get().x>start,'.14m safe step is allowed');
   for(let i=2;i<=20;i++)h.frames.shift()(1000+100*i);
-  assert.ok(get().x<=start+.18,'disk stops before thin wall');
+  assert.ok(get().x<=start+.3,'disk stops before thin wall');
   assert.ok(h.drawCalls.some(c=>c[0]==='ellipse'&&Math.abs(c[3]-get().zoom*.32)<1e-10&&Math.abs(c[4]-get().zoom*.32/2)<1e-10));
 });
 

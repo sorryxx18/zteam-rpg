@@ -40,6 +40,6 @@ test('任務與教學卡具有高於 intro 的置中、可捲動安全容器，h
 });
 
 test('CSS 與遊戲入口使用同一個 v2 第二批快取版號', () => {
-  assert.match(html, /href="\.\/style\.css\?v=6v32"/);
-  assert.match(html, /src="\.\/game\.js\?v=6v32"/);
+  assert.match(html, /href="\.\/style\.css\?v=6v32a"/);
+  assert.match(html, /src="\.\/game\.js\?v=6v32a"/);
 });

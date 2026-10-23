@@ -13,7 +13,7 @@ async function harness({location=new URL('https://public.example/'),musicPlayer=
   const storage=new Map();
   const elements=new Map(), calls=[],events={}, frames=[],drawCalls=[],raceInputs=[],timers=[];
   const context2d=new Proxy({measureText:text=>({width:[...text].length*11})}, {get:(o,k)=>o[k]??((...args)=>{drawCalls.push([k,...args]);}),set:(o,k,v)=>(drawCalls.push(['set',k,v]),o[k]=v,true)});
-  function element(id=''){return {id,value:'',textContent:'',disabled:false,hidden:false,open:false,dataset:{},listeners:{},classList:{add(){},remove(){}},getContext:()=>context2d,getBoundingClientRect:()=>({width:780,height:1000}),append(o){this.options??=[];this.options.push(o);},setAttribute(k,v){this[k]=v;},focus(){document.activeElement=this;},closest:()=>null,setPointerCapture(){},showModal(){this.open=true;},close(){this.open=false;},addEventListener(k,fn){this.listeners[k]=fn;}};}
+  function element(id=''){return {id,style:{},value:'',textContent:'',disabled:false,hidden:false,open:false,dataset:{},listeners:{},classList:{add(){},remove(){}},getContext:()=>context2d,getBoundingClientRect:()=>({width:780,height:1000}),append(o){this.options??=[];this.options.push(o);},setAttribute(k,v){this[k]=v;},focus(){document.activeElement=this;},closest:()=>null,setPointerCapture(){},showModal(){this.open=true;},close(){this.open=false;},addEventListener(k,fn){this.listeners[k]=fn;}};}
   for(const [,id] of html.matchAll(/id="([^"]+)"/g))elements.set(id,element(id));
   for(const [,id,text] of html.matchAll(/id="([^"]+)"[^>]*>([^<]*)</g))if(elements.has(id))elements.get(id).textContent=text;
   const characters=['male','female','rhino'].map(name=>({...element(),dataset:{character:name,startCharacter:name},querySelector:()=>element()}));
@@ -103,7 +103,7 @@ test('v3.2 跑步動畫1.5倍、腳塵淡出及鏡頭前帶各自可關閉，不
 });
 test('v3.2 短橫式向下跑仍完整留在鏡頭內',async()=>{const h=await harness({movementOnly:true,viewport:[1200,400]});await h.click('start-game');for(const key of ['s','Shift'])h.events.keydown({key,target:{closest:()=>null},preventDefault(){}});h.advance(200);const s=h.window.__game.getState();assert.ok(100+s.pace.camera.y*s.zoom-s.spriteCssHeight/2>=0,'角色頭頂不可出畫面');});
 test('第四段：高清指揮官1.5倍人物、只對他平滑、氣泡在名稱層下方',async()=>{
- const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.advance(100);const s=h.window.__game.getState();assert.ok(s.commander?.visible);assert.equal(s.commander.heightCss,s.spriteCssHeight*1.5);const index=h.drawCalls.findIndex(c=>c[0]==='drawImage'&&c[1]?.url?.endsWith('commander_hd.png'));assert.ok(index>=0);const smoothing=h.drawCalls.slice(0,index).findLast(c=>c[0]==='set'&&c[1]==='imageSmoothingEnabled');assert.equal(smoothing[2],true);assert.ok(s.commander.lines.length<=2);assert.ok(s.commander.lines.every(s=>[...s].length<=14));const name=h.drawCalls.findIndex((c,i)=>i>index&&c[0]==='strokeText'&&c[1].includes('消防栓'));assert.ok(name>index);const bubble=h.drawCalls.findIndex(c=>c[0]==='fillText'&&c[1]===s.commander.lines[0]),lastArt=h.drawCalls.findLastIndex(c=>c[0]==='drawImage'&&c[1]?.url?.startsWith('./art/')&&!c[1].url.endsWith('commander_hd.png'));assert.ok(bubble>lastArt,'消防栓與車輛不可蓋住氣泡');
+ const h=await harness();await h.click('start-game');h.drawCalls.length=0;h.advance(100);const s=h.window.__game.getState();assert.ok(s.commander?.visible);assert.equal(s.commander.heightCss,s.spriteCssHeight*1.5);const index=h.drawCalls.findIndex(c=>c[0]==='drawImage'&&c[1]?.url?.endsWith('commander_hd.png'));assert.ok(index>=0);const smoothing=h.drawCalls.slice(0,index).findLast(c=>c[0]==='set'&&c[1]==='imageSmoothingEnabled');assert.equal(smoothing[2],true);assert.ok(s.commander.lines.length<=2);assert.ok(s.commander.lines.every(s=>[...s].length<=14));const name=h.drawCalls.findIndex((c,i)=>i>index&&c[0]==='strokeText'&&c[1].includes('消防栓'));assert.ok(name>index);const bubble=h.elements.get('commander-bubble');assert.equal(bubble.hidden,false);assert.equal(bubble.textContent,s.commander.lines.join('\n'));assert.equal(s.commander.fontCss,16);assert.ok(Number.parseFloat(bubble.style.width)>0);assert.equal(h.drawCalls.some(c=>c[0]==='fillText'&&c[1]===s.commander.lines[0]),false,'氣泡文字獨立於像素畫布');
 });
 test('第三輪：首題30/45/60m皆受阻時，自動選同分隊下一場所，不要求玩家重試',async()=>{
  const h=await harness({blockedFirstSite:true});await h.click('start-game');const s=h.window.__game.getState();assert.equal(s.phase,'playing');assert.equal(s.race.site.n,'自動備援場所');assert.equal(s.station,s.spawnName);assert.equal(h.elements.get('start-screen').open,false);assert.ok(!h.elements.get('start-status').textContent.includes('出生失敗'));
@@ -254,8 +254,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
- assert.ok(imports.every(path=>path.endsWith('?v=6v32c')),imports.join(', '));
- const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32c/,'模型依賴也要避開舊快取');
+ assert.ok(imports.every(path=>path.endsWith('?v=6v32d')),imports.join(', '));
+ const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32d/,'模型依賴也要避開舊快取');
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

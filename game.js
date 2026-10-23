@@ -1,13 +1,13 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32c';
-import {createMusicPlayer} from './music.mjs?v=6v32c';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32c';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32c';
-import {localTestRate} from './qa-clock.mjs?v=6v32c';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater} from './missions.mjs?v=6v32c';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32c';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32d';
+import {createMusicPlayer} from './music.mjs?v=6v32d';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32d';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,crowdSpriteHeight,vehicleDisplayDimensions} from './incident.mjs?v=6v32d';
+import {localTestRate} from './qa-clock.mjs?v=6v32d';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater} from './missions.mjs?v=6v32d';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32d';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
-import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32c';
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32d';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
@@ -241,6 +241,7 @@ function distanceScale(sceneZoom,cssWidth,backingWidth){
   return {metres,pixels:metres*ppm};
 }
 function renderScene(){
+ $('commander-bubble').hidden=true;
   updateConstructionUI();
   if(!base){ctx.fillStyle='#9ca77b';ctx.fillRect(0,0,width,height);return;}
   const sceneZoom=phase==='intro'?zoom*(.2+.8*Math.min(1,(performance.now()-introAt)/2000)):zoom;
@@ -304,16 +305,18 @@ function drawHydrantNames(c,scale,w,h){
 }
 function drawCommander(c,scale,w,h,bubbleOnly=false){
  const {x,y}=sceneCenter();
+ const bubbleElement=$('commander-bubble');bubbleElement.hidden=true;
  commanderRender={visible:false,bubble:'',lines:[]};const q=incident?.commander,image=images.commander_hd;if(!q||!image)return false;
  const a=w/2+(q.x-x)*scale,b=h/2-(q.y-y)*scale,ratio=w/canvas.getBoundingClientRect().width,height=spriteCssHeight*1.5*ratio,sw=height*94/200;
  if(a<0||a>w||b<0||b>h)return false;
  c.save();const smoothing=c.imageSmoothingEnabled;if(!bubbleOnly){c.imageSmoothingEnabled=true;c.drawImage(image,a-sw/2,b-height,sw,height);c.imageSmoothingEnabled=smoothing;}
  const bubble=phase==='playing'?commanderDialogue?.text(RULES.roundSeconds-(race?.getState().remaining??RULES.roundSeconds))||'':'',lines=commanderBubbleLines(bubble);
  if(bubbleOnly&&lines.length){
-  const bw=(Math.max(...lines.map(s=>[...s].length))*13+16)*ratio,bh=(lines.length*17+14)*ratio,bx=Math.max(4*ratio,Math.min(w-bw-4*ratio,a-bw/2)),by=Math.max(4*ratio,b-height-bh-12*ratio),tail=Math.max(bx+8*ratio,Math.min(bx+bw-8*ratio,a));
-  c.fillStyle='#fff';c.strokeStyle='#111';c.lineWidth=2*ratio;c.fillRect(bx,by,bw,bh);c.strokeRect(bx,by,bw,bh);c.beginPath();c.moveTo(tail-5*ratio,by+bh);c.lineTo(a,b-height-3*ratio);c.lineTo(tail+5*ratio,by+bh);c.closePath();c.fill();c.stroke();c.fillStyle='#111';c.font=`${13*ratio}px sans-serif`;c.textAlign='left';lines.forEach((line,i)=>c.fillText(line,bx+8*ratio,by+(20+i*17)*ratio));
+  c.font=`600 ${16*ratio}px "PingFang TC","Microsoft JhengHei",sans-serif`;
+  const bw=Math.min(w-8*ratio,Math.max(...lines.map(line=>c.measureText(line).width))+20*ratio),bh=(lines.length*22+16)*ratio,bx=Math.max(4*ratio,Math.min(w-bw-4*ratio,a-bw/2)),by=Math.max(4*ratio,b-height-bh-12*ratio);
+  bubbleElement.textContent=lines.join('\n');bubbleElement.style.left=`${bx/ratio}px`;bubbleElement.style.top=`${by/ratio}px`;bubbleElement.style.width=`${bw/ratio}px`;bubbleElement.hidden=false;
  }
- c.restore();commanderRender={visible:true,heightCss:spriteCssHeight*1.5,screenX:a,screenY:b,bubble,lines,fontCss:13};return true;
+ c.restore();commanderRender={visible:true,heightCss:spriteCssHeight*1.5,screenX:a,screenY:b,bubble,lines,fontCss:16};return true;
 }
 function drawFire(c,fx,fy,ratio,isMini,frame){
   c.save();c.translate(fx,fy);c.scale(isMini?1:ratio,isMini?1:ratio);
@@ -347,7 +350,7 @@ function drawRace(c,scale,w,h,isMini=false){
   else if(incident){
     for(const v of placed.slice(0,sceneVehicles.length))vehicle(v);
     if(incident.cordon){const {a,b}=incident.cordon,dx=px(b.x)-px(a.x),dy=py(b.y)-py(a.y),n=Math.max(1,Math.ceil(Math.hypot(dx,dy)/(8*ratio)));c.lineWidth=5*ratio;for(let i=0;i<n;i++){c.strokeStyle=i%2?'#263e39':'#ffe64d';c.beginPath();c.moveTo(px(a.x)+dx*i/n,py(a.y)+dy*i/n);c.lineTo(px(a.x)+dx*(i+1)/n,py(a.y)+dy*(i+1)/n);c.stroke();}}
-    for(const person of incident.people.slice(0,crowdCount(elapsed)))paint('bystanders',person.variant,Math.floor(performance.now()/1000*person.speed+person.offset)%3,px(person.x),py(person.y),48*ratio);
+    for(const person of incident.people.slice(0,crowdCount(elapsed)).sort((a,b)=>b.y-a.y))paint('bystanders',person.variant,Math.floor(performance.now()/1000*person.speed+person.offset)%3,px(person.x),py(person.y),crowdSpriteHeight(scale,ratio));
     paint('fire_big',0,frame%4,px(incident.centre.x),py(incident.centre.y),130*ratio);
     for(const fire of incident.fires)paint('fire_small',0,frame%4,px(fire.x),py(fire.y),45*ratio);
   }

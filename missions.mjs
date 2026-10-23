@@ -112,10 +112,20 @@ export function waterLabel(source, roads=[]) {
 }
 
 export function decodeWaterCells(cells, roads=[]) {
-  return cells.flatMap(({key,rows})=>rows.map(([x,y,k],index)=>{
+  return cells.flatMap(({key,rows})=>rows.map(([x,y,k,address],index)=>{
     const source={id:`${key}:${index}`,x,y,k};
-    return {...source,n:waterLabel(source,roads)};
+    return {...source,n:waterLabel(source,roads),...(typeof address==='string'&&address.trim()?{address:address.trim()}:{})};
   }));
+}
+
+export function currentHydrant(water, player, construction=null, radius=3) {
+  if(construction)return water.find(w=>w.id===construction.waterId)||null;
+  let target=null,best=radius;
+  for(const source of water){const d=Math.hypot(source.x-player.x,source.y-player.y);if(d<=best){target=source;best=d;}}
+  return target;
+}
+export function hydrantAddress(source) {
+  return typeof source?.address==='string'&&source.address.trim()?source.address.trim().replace(/^(?:臺|台)北市信義區/,'').replace(/\(/g,'（').replace(/\)/g,'）').replace(/（（([^（）]*)））/g,'（$1）'):'地址尚未取得';
 }
 
 // A hydrant only counts when someone can stand within the hose radius of it (some list coordinates sit inside building outlines).

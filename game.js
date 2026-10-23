@@ -1,13 +1,13 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32d';
-import {createMusicPlayer} from './music.mjs?v=6v32d';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32d';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,crowdSpriteHeight,vehicleDisplayDimensions} from './incident.mjs?v=6v32d';
-import {localTestRate} from './qa-clock.mjs?v=6v32d';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater} from './missions.mjs?v=6v32d';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32d';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32e';
+import {createMusicPlayer} from './music.mjs?v=6v32e';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32e';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,crowdSpriteHeight,vehicleDisplayDimensions} from './incident.mjs?v=6v32e';
+import {localTestRate} from './qa-clock.mjs?v=6v32e';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater,currentHydrant,hydrantAddress} from './missions.mjs?v=6v32e';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32e';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
-import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32d';
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32e';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
@@ -420,11 +420,16 @@ function finishRound(){
 function updateConstructionUI(){
   const s=race?.getState(),c=phase==='playing'&&s?.status==='playing'?s.construction:null;
   const panel=$('construction-panel'),progress=$('construction-progress');
-  panel.hidden=!c;progress.max=c?.duration||1;progress.value=c?.elapsed||0;
+  const target=phase==='playing'&&s?.status==='playing'?currentHydrant(s.water,{x,y},c,RULES.captureRadius):null;
+  panel.hidden=!target;panel.dataset.sourceId=String(target?.sourceId??target?.id??'');
+  $('construction-kind').textContent=target?({hydrant_above:'地上消防栓',hydrant_under:'地下消防栓'}[target.k]||'消防栓'):'';
+  $('construction-address').textContent=target?hydrantAddress(target):'';
+  progress.hidden=!c;$('construction-cancel').hidden=!c;$('construction-detail').hidden=!c;
+  progress.max=c?.duration||1;progress.value=c?.elapsed||0;
   if(phase==='playing'&&s.remaining>0&&s.remaining<=30)$('world').classList.add('urgent');else $('world').classList.remove('urgent');
   $('round-score').textContent=`${s?.score||0} 分`;if(phase!=='playing'){captureEffects=[];$('intercept-feedback').hidden=true;$('stolen-feedback').hidden=true;notices.clear();}
   $('construction-detail').textContent=c?`水帶 ${c.hoses}條 · ${c.elapsed.toFixed(1)} / ${c.duration.toFixed(1)}秒`:'';
-  $('construction-status').textContent=c?(c.contested?'搶線中！':'佈線中・暫時不能移動'):'';
+  $('construction-status').textContent=c?(c.contested?'搶線中！':'佈線中・暫時不能移動'):target?(target.owner==='player'?'已佔領':target.owner?'消防車已佔領':'目前消防栓'):'';
   $('total-hoses').textContent=`水帶 ${s?.totalHoses||0}條`;
   if(c)clearInput();
 }

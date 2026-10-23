@@ -172,9 +172,9 @@ test('B2 施工先於移動鎖定並清雙指，計時持續；原生取消清�
  stick.listeners.pointerdown({pointerId:1,clientX:148,clientY:264,preventDefault(){}});h.elements.get('run').listeners.pointerdown({pointerId:2,preventDefault(){}});
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});const before=ticks;h.advance(100);assert.equal(get().x,start,'施工查詢必須先於stepMove');assert.ok(ticks>before);assert.equal(get().runHeld,false);assert.equal(get().joystick.active,false);
  const panel=h.elements.get('construction-panel'),progress=h.elements.get('construction-progress');assert.ok(panel);assert.equal(panel.hidden,false);assert.equal(progress.max,3.5);assert.equal(progress.value,.5);assert.match(h.elements.get('construction-detail').textContent,/7.*0\.5.*3\.5/);assert.match(h.elements.get('construction-status').textContent,/搶線中/);assert.match(h.elements.get('total-hoses').textContent,/4/);
- await h.click('construction-cancel');assert.equal(cancelled,1);assert.equal(panel.hidden,true);assert.equal(progress.value,0);assert.equal(h.elements.get('construction-detail').textContent,'');h.advance(200);assert.equal(get().x,start);
+ await h.click('construction-cancel');assert.equal(cancelled,1);assert.equal(h.elements.get('construction-cancel').hidden,true);assert.equal(progress.value,0);assert.equal(h.elements.get('construction-detail').textContent,'');h.advance(200);assert.equal(get().x,start);
  h.events.keydown({target:{closest:()=>null},key:'a',preventDefault(){}});h.advance(300);assert.ok(get().x<start,'取消後可新輸入離開水源');
- construction={waterId:0,hoses:2,duration:1,elapsed:.25,contested:false};h.advance(400);assert.equal(panel.hidden,false);construction=null;h.advance(500);assert.equal(panel.hidden,true);assert.equal(progress.value,0,'被搶或完工不保留進度');
+ construction={waterId:0,hoses:2,duration:1,elapsed:.25,contested:false};h.advance(400);assert.equal(panel.hidden,false);construction=null;h.advance(500);assert.equal(h.elements.get('construction-cancel').hidden,true);assert.equal(progress.value,0,'被搶或完工不保留進度');
  construction={waterId:0,hoses:2,duration:1,elapsed:.25,contested:false};h.advance(600);await h.click('settings');assert.equal(panel.hidden,true,'重選即清');
 });
 test('B2 真模型施工首幀鎖住、取消原地不重啟，離開3m再回來才重建並累計成功水帶',async()=>{
@@ -185,7 +185,7 @@ test('B2 真模型施工首幀鎖住、取消原地不重啟，離開3m再回來
  h.events.keydown({target:{closest:()=>null},key:'a',preventDefault(){}});for(let i=0;i<20;i++)h.advance(time+=100);h.events.keyup({key:'a'});assert.ok(start-get().x>3);
  h.events.keydown({target:{closest:()=>null},key:'d',preventDefault(){}});for(let i=0;i<20&&!get().race.construction;i++)h.advance(time+=100);
  assert.ok(get().race.construction);const hoses=get().race.construction.hoses;for(let i=0;i<65&&get().race.construction;i++)h.advance(time+=100);
- assert.equal(get().race.captured,1);assert.equal(get().race.totalHoses,hoses);assert.equal(h.elements.get('construction-panel').hidden,true);assert.equal(h.elements.get('construction-progress').value,0);assert.equal(get().moving,false);
+ assert.equal(get().race.captured,1);assert.equal(get().race.totalHoses,hoses);assert.equal(h.elements.get('construction-panel').hidden,false);assert.equal(h.elements.get('construction-status').textContent,'已佔領');assert.equal(h.elements.get('construction-progress').value,0);assert.equal(get().moving,false);
  h.advance(210000);assert.equal(get().phase,'result');assert.equal(h.elements.get('construction-panel').hidden,true);
 });
 test('B2 三難度真正傳模型並對齊台數與非瞬插文案',async()=>{
@@ -254,8 +254,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
- assert.ok(imports.every(path=>path.endsWith('?v=6v32d')),imports.join(', '));
- const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32d/,'模型依賴也要避開舊快取');
+ assert.ok(imports.every(path=>path.endsWith('?v=6v32e')),imports.join(', '));
+ const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32e/,'模型依賴也要避開舊快取');
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

@@ -88,3 +88,10 @@ footer{white-space:normal;text-align:center}footer small{min-width:0;overflow-wr
  .location small{overflow:visible;white-space:normal;overflow-wrap:anywhere;line-height:14px}
  .tools{top:102px}.map-panel{top:148px}#intersection{top:204px}#message{top:248px}
 }
+
+/* Show only the current hydrant's own address, using the existing operation card. */
+#construction-panel{width:min(360px,calc(100% - 24px));grid-template-columns:minmax(0,1fr) auto}
+#construction-kind,#construction-address{grid-column:1;min-width:0;font-family:"PingFang TC","Microsoft JhengHei",sans-serif}
+#construction-kind{font-size:14px;line-height:20px}
+#construction-address{font-size:16px;font-weight:600;line-height:23px;white-space:normal;overflow-wrap:anywhere}
+#construction-cancel{grid-row:1/6;align-self:center}

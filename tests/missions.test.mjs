@@ -21,7 +21,7 @@ test('authorized water cells preserve bytes, whitelist and totals',()=>{
  let count=0; const kinds=new Set();
  for(const key of keys){assert.match(key,/^-?\d+_-?\d+$/); const rows=read('data/w/'+key+'.json');
  assertAuthorized('w/'+key+'.json');
- for(const row of rows){assert.equal(row.length,3);assert.ok(Number.isFinite(row[0])&&Number.isFinite(row[1])); kinds.add(row[2]);count++;}}
+ for(const row of rows){assert.equal(row.length,4);assert.ok(typeof row[3]==='string'&&row[3].trim());assert.ok(Number.isFinite(row[0])&&Number.isFinite(row[1])); kinds.add(row[2]);count++;}}
  assert.equal(count,4644);assert.deepEqual([...kinds].sort(),['hydrant_above','hydrant_under'].sort());
 });
 const m = await import('../missions.mjs').catch(e=>{if(e.code==='ERR_MODULE_NOT_FOUND')return {};throw e;});

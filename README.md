@@ -1,4 +1,4 @@
-# 犀牛搶水源 v3.2a
+# 犀牛搶水源 v3.2e
 
 **三分半鐘與消防車比佔領顆數，5秒後對手出動，消防栓分四波增援。**
 
@@ -20,7 +20,7 @@
 
 ## 圖資與來源
 
-僅使用交接授權且已清理的JSON：1217處場所、177格共4644筆消防栓（地上536、地下4108）；採用授權v3.1遊戲點位（含疊點位置調整，非現場測繪座標）。只顯示遊戲路名及種類，不含原消防栓編號或地址，不讀取原始CSV。
+僅使用交接授權且已清理的JSON：1217處場所、177格共4644筆消防栓（地上536、地下4108）；採用授權v3.1遊戲點位（含疊點位置調整，非現場測繪座標）。靠近或佈線時顯示當前消防栓對應的完整來源地址；畫面省略「臺北市信義區」、保留路段巷弄門牌，長地址換行，離開即收起。地址依本次授權Excel及歷史移點流程追溯，公開資料僅增加地址，不含原消防栓編號、管理者等欄位；不讀取原始CSV。
 
 道路、建物與分隊沿用OpenStreetMap公開圖資，© [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)，依ODbL使用。角色原圖保存在`assets/originals/`。音樂為Juhani Junkala／SubspaceAudio的[5 chiptunes (action)](https://opengameart.org/content/5-chiptunes-action)，CC0 1.0，詳見`assets/music/SOURCES.md`。
 

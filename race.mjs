@@ -1,4 +1,4 @@
-import {circleIntersectsPoly,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32b';
+import {circleIntersectsPoly,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32c';
 // Pure, metre-based undirected road model. No DOM, network, or global state.
 export const NPC_COUNTS=Object.freeze({easy:2,normal:3,hard:4});
 export const RULES=Object.freeze({roundSeconds:210,npcDelaySeconds:5,npcStaggerSeconds:5,spawnMode:'near-site',npcSpawnMode:'nearest-station',spawnDistance:30,targetRadius:500,captureRadius:3,difficulty:'normal',npcCount:3,runSpeed:6,npcSpeedRatio:.9});
@@ -12,7 +12,7 @@ export function rememberHighScore(storage,difficulty,score){
 export function competition(water){
  const player=water.filter(w=>w.owner==='player').length,npc=water.filter(w=>w.owner!==null&&w.owner!=='player').length,unclaimed=water.length-player-npc;
  const outcome=player>npc?'win':player<npc?'loss':'draw';
- return {player,npc,unclaimed,outcome,label:{win:'勝利！',loss:'被搶光了…',draw:'平手'}[outcome]};
+ return {player,npc,unclaimed,outcome,label:{win:'勝利！',loss:'消防車領先',draw:'平手'}[outcome]};
 }
 export function rememberRecord(storage,difficulty,outcome){
  const key=`zteam-rpg-record-${difficulty}`,record={win:0,loss:0,draw:0};

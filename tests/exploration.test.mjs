@@ -143,7 +143,7 @@ test('v3 指定原圖繪製火場、群眾與雙消防栓，場景不增加碰�
 test('v3 對戰HUD即時合計NPC；高分仍可落敗；結算只記一次且勝負在最上方',async()=>{
  const h=await harness();let finished=false;const create=h.box.createRace;h.box.createRace=options=>{const m=create(options);return {...m,getState:()=>{const s=m.getState();return {...s,water:s.water.map((w,i)=>({...w,owner:i===0?'player':'npc'+i})),score:50,captured:1,total:3,comboBonus:49,status:finished?'finished':'playing'};},tick(){},drainEvents:()=>[]};};
  await h.click('start-game');h.advance(100);assert.equal(h.elements.get('captured').textContent,'你 1 ： 消防車 2');finished=true;h.advance(200);
- assert.equal(h.elements.get('result-title').textContent,'被搶光了…');assert.equal(h.elements.get('result-versus').textContent,'你 1 顆 vs 消防車 2 顆（還有 0 顆沒人拿）');assert.equal(h.elements.get('result-score').textContent,'50 分');assert.match(h.elements.get('result-record').textContent,/普通難度戰績：勝 0 敗 1 平 0/);assert.equal(h.box.document.activeElement.id,'result-title');h.advance(300);h.advance(400);assert.equal(JSON.parse(h.storage.get('zteam-rpg-record-normal')).loss,1);
+ assert.equal(h.elements.get('result-title').textContent,'消防車領先');assert.equal(h.elements.get('result-versus').textContent,'你 1 顆 vs 消防車 2 顆（還有 0 顆沒人拿）');assert.equal(h.elements.get('result-score').textContent,'50 分');assert.match(h.elements.get('result-record').textContent,/普通難度戰績：勝 0 敗 1 平 0/);assert.equal(h.box.document.activeElement.id,'result-title');h.advance(300);h.advance(400);assert.equal(JSON.parse(h.storage.get('zteam-rpg-record-normal')).loss,1);
 });
 test('v3 分隊九個大按鈕與角色選取都有aria-pressed；被搶提示獨立置頂',async()=>{
  const h=await harness();const group=h.elements.get('station-choices');assert.ok(group);assert.equal(group.options.length,9);const b=group.options[0];await b.listeners.click();assert.equal(h.elements.get('start-station').value,b.dataset.startStation);assert.equal(b['aria-pressed'],'true');await group.options.find(el=>el.dataset.startStation.includes('莊敬')).listeners.click();
@@ -254,8 +254,8 @@ test('v2 boot fetch失敗顯示可點重試入口，重試成功不重複分隊�
 });
 test('v2 頂端模組統一6b2快取版本',async()=>{
  const source=await readFile(new URL('game.js',root),'utf8');const imports=[...source.matchAll(/^import .*?from '([^']+)';/gm)].map(m=>m[1]);assert.equal(imports.length,8);
- assert.ok(imports.every(path=>path.endsWith('?v=6v32b')),imports.join(', '));
- const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32b/,'模型依賴也要避開舊快取');
+ assert.ok(imports.every(path=>path.endsWith('?v=6v32c')),imports.join(', '));
+ const model=await readFile(new URL('race.mjs',root),'utf8');assert.match(model,/core\.mjs\?v=6v32c/,'模型依賴也要避開舊快取');
 });
 test('v2 出生失敗不拋出RAF，清前奏並提供真正可用重試',async()=>{
  const h=await harness({autoIntro:false}),create=h.box.createRace;let fail=true;

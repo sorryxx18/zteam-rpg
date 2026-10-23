@@ -1,13 +1,13 @@
-import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32b';
-import {createMusicPlayer} from './music.mjs?v=6v32b';
-import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32b';
-import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32b';
-import {localTestRate} from './qa-clock.mjs?v=6v32b';
-import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater} from './missions.mjs?v=6v32b';
-import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32b';
+import {atlasFrame,circleIntersectsPoly,stepMove,nearestRoad,COLLISION_RADIUS,nearestStandableRoad} from './core.mjs?v=6v32c';
+import {createMusicPlayer} from './music.mjs?v=6v32c';
+import {RULES,NPC_COUNTS,createRace,findPlayerSpawn,roundStars,rememberHighScore,competition,rememberRecord} from './race.mjs?v=6v32c';
+import {ART,createIncident,crowdCount,crowdSpeedFactor,vehicleDisplayDimensions} from './incident.mjs?v=6v32c';
+import {localTestRate} from './qa-clock.mjs?v=6v32c';
+import {missionCandidates,resolveFireSite,waterCellKeys,decodeWaterCells,selectObjectives,waterLabel,reachableWater} from './missions.mjs?v=6v32c';
+import {layoutResultMarkers,createNoticeQueue,layoutVehicleSprites,selectHydrantLabels} from './ui.mjs?v=6v32c';
 const notices=createNoticeQueue();
 const testRate=localTestRate(window.location);
-import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32b';
+import {createCommanderDialogue,commanderBubbleLines} from './commander.mjs?v=6v32c';
 const $=id=>document.getElementById(id), canvas=$('game'), ctx=canvas.getContext('2d'), mini=$('minimap').getContext('2d');
 const keys=new Set(), cache=new Map(), pending=new Map(), failed=new Set(), images={};
 const joystick={x:0,y:0,active:false};
@@ -39,7 +39,7 @@ $('music-toggle').addEventListener('click',()=>{clearInput();const s=music.getSt
 function musicAction(action,arg){try{Promise.resolve(music[action](arg)).catch(()=>{musicError=true;updateMusicUI();});}catch(e){musicError=true;updateMusicUI();}}
 let phase='select',bootstrapped=false,difficulty='normal';
 let missionAt=0,tutorialStep=0;
-const tutorialText=['走路：左搖桿或方向鍵／WASD移動，按住跑鍵奔跑。','佈線佔消防栓：靠近目標消防栓3m內會佈線，完成才佔領；三分鐘盡量多佔。','小心消防車：5秒後出動，會搶走尚未佔領的消防栓。'];
+const tutorialText=['走路：左搖桿或方向鍵／WASD移動，按住跑鍵奔跑。','佈線佔消防栓：靠近目標消防栓3m內會佈線，完成才佔領；三分半鐘盡量多佔。','小心消防車：5秒後出動，會搶走尚未佔領的消防栓。'];
 function beginIntro(){phase='intro';introAt=performance.now();$('intro').hidden=false;$('tutorial-card').hidden=true;$('mission-card').hidden=true;clearInput();}
 function finishMission(){
  if(phase!=='mission')return;$('mission-card').hidden=true;
